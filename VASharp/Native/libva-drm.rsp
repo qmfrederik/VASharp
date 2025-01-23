@@ -1,0 +1,9 @@
+-cmulti-file
+-o.
+-nVASharp.Native
+-lva-drm
+-I/usr/lib/gcc/x86_64-linux-gnu/13/include/
+-I/usr/include/va
+-fnative.h
+-mDrmMethods
+-t/usr/include/va/va_drm.h
