@@ -7,13 +7,32 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/dotnet/sdk:8.0
+      image: mcr.microsoft.com/dotnet/sdk:8.0-noble
     steps:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends unzip libva-dev libgcc-13-dev
+    - name: Install ClangSharpPInvokeGenerator
+      run: |
+        dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3
+        mkdir lib && cd lib
+        curl -X GET -L https://www.nuget.org/api/v2/package/libclang.runtime.linux-x64/18.1.3.2 --output libclang.zip
+        curl -X GET -L https://www.nuget.org/api/v2/package/libClangSharp.runtime.linux-x64/18.1.3.1 --output libClangSharp.zip
+        unzip libclang.zip
+        unzip -o libClangSharp.zip
+        mv runtimes/linux-x64/native/libclang.so runtimes/linux-x64/native/libclang.so.18
+        LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator --version || true
+    - name: Generate C# bindings
+      run: |
+        LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva.rsp || true
+        LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva-drm.rsp || true
+      working-directory: ./VASharp/Native
     - name: Build
       run: dotnet build
     - name: Test
@@ -25,10 +44,12 @@ jobs:
       uses: dotnet/nbgv@master
       id: nbgv
     - name: Publish NuGet packages as artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VASharp-${{ steps.nbgv.outputs.SemVer2 }}
-        path: nuget/
+        path: |
+          nuget/
+          VASharp/Native/*.cs
     - name: Publish NuGet packages to GitHub NuGet feed
       if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
       run: |
