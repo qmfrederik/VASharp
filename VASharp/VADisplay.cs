@@ -30,6 +30,8 @@ namespace VASharp
         /// <inheritdoc/>
         public bool IsDisposed { get; private set; }
 
+        public void* Handle => this.display;
+
         /// <summary>
         /// Returns a pointer to a zero-terminated string describing some aspects of the VA implemenation on a specific hardware accelerator.
         /// </summary>
@@ -80,6 +82,32 @@ namespace VASharp
             this.Version = new Version(major_version, minor_version);
         }
 
+        public VAProfile[] QueryConfigProfiles()
+        {
+            int num_profiles = Methods.vaMaxNumProfiles(this.display);
+            var profiles = stackalloc VAProfile[num_profiles];
+
+            var ret = Methods.vaQueryConfigProfiles(this.display, profiles, &num_profiles);
+            ThrowOnError(ret);
+
+            return new Span<VAProfile>(profiles, num_profiles).ToArray();
+        }
+
+        public VAEntrypoint[] QueryConfigEntrypoints(VAProfile profile)
+        {
+            int num_entrypoints = Methods.vaMaxNumEntrypoints(this.display);
+            var entrypoints = stackalloc VAEntrypoint[num_entrypoints];
+
+            int ret = Methods.vaQueryConfigEntrypoints(
+                this.display,
+                profile,
+                entrypoints,
+                &num_entrypoints);
+            ThrowOnError(ret);
+
+            return new Span<VAEntrypoint>(entrypoints, num_entrypoints).ToArray();
+        }
+
         /// <summary>
         /// Cleans up all internal resources.
         /// </summary>
@@ -89,7 +117,7 @@ namespace VASharp
             ThrowOnError(ret);
         }
 
-        protected static void ThrowOnError(int status)
+        public static void ThrowOnError(int status)
         {
             if (status != 0)
             {
@@ -108,7 +136,7 @@ namespace VASharp
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        private static unsafe void OnInfo(void *user_context, sbyte *message)
+        private static unsafe void OnInfo(void* user_context, sbyte* message)
         {
             var loggerHandle = GCHandle.FromIntPtr((nint)user_context);
             var logger = (ILogger)loggerHandle.Target!;
