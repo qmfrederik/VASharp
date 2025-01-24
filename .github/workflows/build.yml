@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/dotnet/sdk:8.0-noble
+    needs: build-native
     steps:
     - uses: actions/checkout@v2
       with:
@@ -58,6 +59,16 @@ jobs:
         LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva.rsp || true
         LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva-drm.rsp || true
       working-directory: ./VASharp/Native
+    - uses: actions/download-artifact@v4
+      name: Download x64-windows binaries
+      with:
+        name: VASharp-x64-windows
+        path: vcpkg_installed/x64-windows/
+    - uses: actions/download-artifact@v4
+      name: Download x86-windows binaries
+      with:
+        name: VASharp-x86-windows
+        path: vcpkg_installed/x86-windows/
     - name: Build
       run: dotnet build
     - name: Test
