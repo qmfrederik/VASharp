@@ -7,3 +7,6 @@
 -I../../vcpkg_installed/x64-windows/include/
 -t../../vcpkg_installed/x64-windows/include/va/va_win32.h
 -DVA_WIN32
+-r_LUID=Windows.Win32.Foundation.LUID
+--with-access-specifier
+vaGetDisplayWin32=Internal
