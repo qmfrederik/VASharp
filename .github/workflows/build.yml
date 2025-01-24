@@ -43,7 +43,7 @@ jobs:
     - name: Install dependencies
       run: |
         apt-get update
-        apt-get install -y --no-install-recommends unzip libva-dev libgcc-13-dev
+        apt-get install -y --no-install-recommends unzip libva-dev libstdc++-13-dev
     - name: Install ClangSharpPInvokeGenerator
       run: |
         dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3
