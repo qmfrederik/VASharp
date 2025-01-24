@@ -6,6 +6,31 @@ on:
     branches: [ main ]
 
 jobs:
+  build-native:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        triplet: [ "x64-windows", "x86-windows"]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Build libva
+      uses: lukka/run-vcpkg@v11
+      with:
+        runVcpkgInstall: true
+        vcpkgJsonGlob: vcpkg.json
+      env:
+        VCPKG_INSTALLED_DIR: "${{ github.workspace }}/vcpkg_installed"
+        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+    - name: Publish native files packages as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: VASharp-${{ matrix.triplet }}
+        path: |
+          vcpkg_installed/${{ matrix.triplet }}/bin
+          vcpkg_installed/${{ matrix.triplet }}/include
+
   build:
     runs-on: ubuntu-24.04
     container:
