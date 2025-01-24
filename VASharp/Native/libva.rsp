@@ -4,6 +4,6 @@
 -nVASharp.Native
 -lva
 -I/usr/lib/gcc/x86_64-linux-gnu/13/include/
--I/usr/include/va
+-I/usr/include/
 -fnative.h
 -t/usr/include/va/va.h

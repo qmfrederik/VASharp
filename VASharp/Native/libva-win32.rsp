@@ -1,0 +1,9 @@
+-cmulti-file
+-o.
+-nVASharp.Native
+-lva-win32
+-fnative.h
+-mWin32Methods
+-I../../vcpkg_installed/x64-windows/include/
+-t../../vcpkg_installed/x64-windows/include/va/va_win32.h
+-DVA_WIN32
