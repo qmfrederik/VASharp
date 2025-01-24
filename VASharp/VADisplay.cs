@@ -1,7 +1,8 @@
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Microsoft;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using VASharp.Native;
 
 namespace VASharp
@@ -106,6 +107,127 @@ namespace VASharp
             ThrowOnError(ret);
 
             return new Span<VAEntrypoint>(entrypoints, num_entrypoints).ToArray();
+        }
+
+        public uint CreateConfig(VAProfile profile, VAEntrypoint entrypoint, _VAConfigAttrib[] attributes)
+        {
+            uint config_id;
+
+            fixed (_VAConfigAttrib* attrib_list = attributes)
+            {
+                int ret = Methods.vaCreateConfig(
+                    this.display,
+                    profile,
+                    entrypoint,
+                    attrib_list,
+                    attributes.Length,
+                    &config_id);
+                ThrowOnError(ret);
+            }
+
+            return config_id;
+        }
+
+        public uint CreateSurfaces(uint format, uint width, uint height)
+        {
+            uint surface_id;
+
+            int ret = Methods.vaCreateSurfaces(
+                this.Handle,
+                format,
+                width,
+                height,
+                &surface_id,
+                1,
+                null,
+                0);
+            ThrowOnError(ret);
+
+            return surface_id;
+        }
+
+        public uint CreateContext(uint configId, int width, int height, int flag, uint renderTarget)
+        {
+            uint context_id;
+            int ret = Methods.vaCreateContext(
+                this.Handle,
+                configId,
+                width,
+                height,
+                flag,
+                &renderTarget,
+                1,
+                &context_id);
+            ThrowOnError(ret);
+
+            return context_id;
+        }
+
+        public uint CreateBuffer<T>(uint context, VABufferType type, ref T value)
+            where T : unmanaged
+        {
+            uint buf_id;
+            var x= sizeof(_VAPictureParameterBufferH264);
+
+            fixed (T* v = &value)
+            {
+                int ret = Methods.vaCreateBuffer(
+                    this.Handle,
+                    context,
+                    type,
+                    (uint)sizeof(T),
+                    1,
+                    v,
+                    &buf_id);
+                ThrowOnError(ret);
+            }
+
+            return buf_id;
+        }
+
+        public void BeginPicture(uint context, uint renderTarget)
+        {
+            int ret = Methods.vaBeginPicture(
+                this.Handle,
+                context,
+                renderTarget);
+            ThrowOnError(ret);
+        }
+
+        public void RenderPicture(uint context, uint bufferId)
+        {
+            int ret = Methods.vaRenderPicture(
+                this.Handle,
+                context,
+                &bufferId,
+                1);
+            ThrowOnError(ret);
+        }
+
+        public void EndPicture(uint context)
+        {
+            int ret = Methods.vaEndPicture(
+                this.Handle,
+                context);
+            ThrowOnError(ret);
+        }
+
+        public void DestroyConfig(uint configId)
+        {
+            int ret = Methods.vaDestroyConfig(this.Handle, configId);
+            ThrowOnError(ret);
+        }
+
+        public void DestroySurface(uint surfaceId)
+        {
+            int ret = Methods.vaDestroySurfaces(this.Handle, &surfaceId, 1);
+            ThrowOnError(ret);
+        }
+
+        public void DestroyContext(uint contextId)
+        {
+            int ret = Methods.vaDestroyContext(this.Handle, contextId);
+            ThrowOnError(ret);
         }
 
         /// <summary>
