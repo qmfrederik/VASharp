@@ -1,7 +1,7 @@
 -cmulti-file
 -o.
 -nVASharp.Native
--lva-win32
+-lva_win32
 -fnative.h
 -mWin32Methods
 -I../../vcpkg_installed/x64-windows/include/
