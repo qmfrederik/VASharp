@@ -3,7 +3,7 @@
 -nVASharp.Native
 -lva-drm
 -I/usr/lib/gcc/x86_64-linux-gnu/13/include/
--I/usr/include/va
+-I/usr/include/
 -fnative.h
 -mDrmMethods
 -t/usr/include/va/va_drm.h

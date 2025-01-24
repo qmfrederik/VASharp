@@ -6,10 +6,36 @@ on:
     branches: [ main ]
 
 jobs:
+  build-native:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        triplet: [ "x64-windows", "x86-windows"]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Build libva
+      uses: lukka/run-vcpkg@v11
+      with:
+        runVcpkgInstall: true
+        vcpkgJsonGlob: vcpkg.json
+      env:
+        VCPKG_INSTALLED_DIR: "${{ github.workspace }}/vcpkg_installed"
+        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+    - name: Publish native files packages as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: VASharp-${{ matrix.triplet }}
+        path: |
+          vcpkg_installed/${{ matrix.triplet }}/bin
+          vcpkg_installed/${{ matrix.triplet }}/include
+
   build:
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/dotnet/sdk:8.0-noble
+    needs: build-native
     steps:
     - uses: actions/checkout@v2
       with:
@@ -17,7 +43,7 @@ jobs:
     - name: Install dependencies
       run: |
         apt-get update
-        apt-get install -y --no-install-recommends unzip libva-dev libgcc-13-dev
+        apt-get install -y --no-install-recommends unzip libva-dev libstdc++-13-dev
     - name: Install ClangSharpPInvokeGenerator
       run: |
         dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3
@@ -33,6 +59,16 @@ jobs:
         LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva.rsp || true
         LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/lib/runtimes/linux-x64/native/" ~/.dotnet/tools/ClangSharpPInvokeGenerator @libva-drm.rsp || true
       working-directory: ./VASharp/Native
+    - uses: actions/download-artifact@v4
+      name: Download x64-windows binaries
+      with:
+        name: VASharp-x64-windows
+        path: vcpkg_installed/x64-windows/
+    - uses: actions/download-artifact@v4
+      name: Download x86-windows binaries
+      with:
+        name: VASharp-x86-windows
+        path: vcpkg_installed/x86-windows/
     - name: Build
       run: dotnet build
     - name: Test
