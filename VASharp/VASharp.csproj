@@ -1,6 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Depending on the build platform, not all libva backends may be available:
+         - Define WITHOUT_DRM if DrmMethods does not exist
+         - Define WITHOUT_WIN32 if Win32Methods does not exist
+    -->
+    <DefineConstants Condition="!Exists('$(MSBuildProjectDirectory)/Native/DrmMethods.cs')">$(DefineConstants);WITHOUT_DRM</DefineConstants>
+    <DefineConstants Condition="!Exists('$(MSBuildProjectDirectory)/Native/Win32Methods.cs')">$(DefineConstants);WITHOUT_WIN32</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

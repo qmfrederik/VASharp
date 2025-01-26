@@ -17,8 +17,9 @@ namespace VASharp.Tests
         {
             using var file = File.Open("test.txt", FileMode.Create);
 
-            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(null, NullLogger<DrmDisplay>.Instance));
-            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(file, null));
+            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(null, new VAOptions(), NullLogger<DrmDisplay>.Instance));
+            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(file, null, NullLogger<DrmDisplay>.Instance));
+            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(file, new VAOptions(), null));
         }
 
         /// <summary>
@@ -29,7 +30,7 @@ namespace VASharp.Tests
         public void Constructor_ThrowsOnInvalidFile()
         {
             using var file = File.Open("test.txt", FileMode.Create);
-            var ex = Assert.Throws<VAException>(() => new DrmDisplay(file, NullLogger<DrmDisplay>.Instance));
+            var ex = Assert.Throws<VAException>(() => new DrmDisplay(file, new VAOptions(), NullLogger<DrmDisplay>.Instance));
             Assert.Equal("invalid VADisplay", ex.Message);
         }
 
@@ -41,7 +42,7 @@ namespace VASharp.Tests
         public void Constructor_OpensDisplay()
         {
             using var file = File.Open("/dev/dri/renderD128", FileMode.Open, FileAccess.ReadWrite);
-            using var display = new DrmDisplay(file, NullLogger<DrmDisplay>.Instance);
+            using var display = new DrmDisplay(file, new VAOptions(), NullLogger<DrmDisplay>.Instance);
             
             Assert.Equal(new Version(1, 20), display.Version);
             var s = display.VendorString;
