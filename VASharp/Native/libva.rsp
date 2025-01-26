@@ -7,3 +7,6 @@
 -I/usr/include/
 -fnative.h
 -t/usr/include/va/va.h
+-eVA_TIMEOUT_INFINITE
+--config
+generate-macro-bindings

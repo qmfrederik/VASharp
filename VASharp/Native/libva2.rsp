@@ -7,3 +7,6 @@
 -I../../vcpkg_installed/x64-windows/include/
 -t../../vcpkg_installed/x64-windows/include/va/va.h
 -DVA_WIN32
+-eVA_TIMEOUT_INFINITE
+--config
+generate-macro-bindings

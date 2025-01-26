@@ -19,6 +19,21 @@ namespace VASharp
             this.HResult = status;
         }
 
+        /// <summary>
+        /// Throws a <see cref="VAException"/> if <paramref name="status"/> represents
+        /// an error.
+        /// </summary>
+        /// <param name="status">
+        /// A VA status code.
+        /// </param>
+        public static void ThrowOnError(int status)
+        {
+            if (status != 0)
+            {
+                throw new VAException(status);
+            }
+        }
+
         private static unsafe string GetErrorMessage(int status)
         {
             return new string(Methods.vaErrorStr(status));
