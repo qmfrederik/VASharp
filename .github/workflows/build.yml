@@ -108,7 +108,7 @@ jobs:
           nuget/
           VASharp/Native/*.cs
     - name: Publish NuGet packages to GitHub NuGet feed
-      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       run: |
         dotnet nuget add source --username USERNAME --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
         dotnet nuget push "nuget/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source "github"
