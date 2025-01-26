@@ -7,3 +7,5 @@
 -I../../vcpkg_installed/x64-windows/include/
 -t../../vcpkg_installed/x64-windows/include/va/va.h
 -DVA_WIN32
+--config
+generate-macro-bindings

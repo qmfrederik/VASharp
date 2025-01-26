@@ -7,3 +7,5 @@
 -I/usr/include/
 -fnative.h
 -t/usr/include/va/va.h
+--config
+generate-macro-bindings
