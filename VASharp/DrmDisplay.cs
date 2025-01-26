@@ -15,19 +15,16 @@ namespace VASharp
         /// <summary>
         /// Initializes a new instance of the <see cref="DrmDisplay"/> class.
         /// </summary>
-        /// <param name="stream">
-        /// A <see cref="Stream"/> which represents the DRM GPU, such as <c>/dev/dri/renderD128</c>
-        /// </param>
         /// <param name="options">
         /// Options for the Video Acceleration library.
         /// </param>
         /// <param name="logger">
         /// The logger to use for this display.
         /// </param>
-        public DrmDisplay(FileStream stream, VAOptions options, ILogger<DrmDisplay> logger)
+        public DrmDisplay(VAOptions options, ILogger<DrmDisplay> logger)
             : base(options, logger)
         {
-            this.stream = stream ?? throw new ArgumentNullException(nameof(stream));
+            this.stream = File.Open(options.DrmPath!, FileMode.Open, FileAccess.ReadWrite);
 
 #if WITHOUT_DRM
             throw new NotSupportedException("DrmDisplay is not supported on this build of VASharp.");

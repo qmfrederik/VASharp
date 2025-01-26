@@ -10,27 +10,26 @@ namespace VASharp.Tests
     public class DrmDisplayTests
     {
         /// <summary>
-        /// The <see cref="DrmDisplay.DrmDisplay(FileStream, ILogger{DrmDisplay})"/> constructor validates its arguments.
+        /// The <see cref="DrmDisplay.DrmDisplay(VAOptions, ILogger{DrmDisplay})"/> constructor validates its arguments.
         /// </summary>
         [SkippableFact, SupportedOSPlatform("linux")]
         public void Constructor_ValidatesArguments()
         {
             using var file = File.Open("test.txt", FileMode.Create);
 
-            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(null, new VAOptions(), NullLogger<DrmDisplay>.Instance));
-            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(file, null, NullLogger<DrmDisplay>.Instance));
-            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(file, new VAOptions(), null));
+            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(null, NullLogger<DrmDisplay>.Instance));
+            Assert.Throws<ArgumentNullException>(() => new DrmDisplay(new VAOptions(), null));
         }
 
         /// <summary>
-        /// The <see cref="DrmDisplay.DrmDisplay(FileStream, ILogger{DrmDisplay})"/> constructor throws an exception
+        /// The <see cref="DrmDisplay.DrmDisplay(VAOptions, ILogger{DrmDisplay})"/> constructor throws an exception
         /// when a <see cref="FileStream"/> is passed which does not represent a DRI device.
         /// </summary>
         [SkippableFact, SupportedOSPlatform("linux")]
         public void Constructor_ThrowsOnInvalidFile()
         {
-            using var file = File.Open("test.txt", FileMode.Create);
-            var ex = Assert.Throws<VAException>(() => new DrmDisplay(file, new VAOptions(), NullLogger<DrmDisplay>.Instance));
+            File.WriteAllText("test.txt", "this is a test file");
+            var ex = Assert.Throws<VAException>(() => new DrmDisplay(new VAOptions() { DrmPath = "test.txt"}, NullLogger<DrmDisplay>.Instance));
             Assert.Equal("invalid VADisplay", ex.Message);
         }
 
@@ -41,8 +40,7 @@ namespace VASharp.Tests
         [SkippableFact(typeof(DirectoryNotFoundException)), SupportedOSPlatform("linux")]
         public void Constructor_OpensDisplay()
         {
-            using var file = File.Open("/dev/dri/renderD128", FileMode.Open, FileAccess.ReadWrite);
-            using var display = new DrmDisplay(file, new VAOptions(), NullLogger<DrmDisplay>.Instance);
+            using var display = new DrmDisplay(new VAOptions(), NullLogger<DrmDisplay>.Instance);
             
             Assert.Equal(new Version(1, 20), display.Version);
             var s = display.VendorString;
