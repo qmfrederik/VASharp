@@ -16,11 +16,16 @@ namespace VASharp
         /// Initializes a new instance of the <see cref="DrmDisplay"/> class.
         /// </summary>
         /// <param name="stream">
-        /// A <see cref="Stream"/> which represents the DRM GPU, such as <c>/dev/dri/renderD128</c></param>
-        /// <param name="logger"></param>
-        /// <exception cref="ArgumentNullException"></exception>
-        public DrmDisplay(FileStream stream, ILogger<DrmDisplay> logger)
-            : base(logger)
+        /// A <see cref="Stream"/> which represents the DRM GPU, such as <c>/dev/dri/renderD128</c>
+        /// </param>
+        /// <param name="options">
+        /// Options for the Video Acceleration library.
+        /// </param>
+        /// <param name="logger">
+        /// The logger to use for this display.
+        /// </param>
+        public DrmDisplay(FileStream stream, VAOptions options, ILogger<DrmDisplay> logger)
+            : base(options, logger)
         {
             this.stream = stream ?? throw new ArgumentNullException(nameof(stream));
 

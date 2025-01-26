@@ -1,7 +1,8 @@
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Microsoft;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using VASharp.Native;
 
 namespace VASharp
@@ -11,7 +12,8 @@ namespace VASharp
     /// </summary>
     public unsafe abstract class VADisplay : IDisposableObservable
     {
-        protected ILogger logger;
+        protected readonly VAOptions options;
+        protected readonly ILogger logger;
         protected GCHandle loggerHandle;
 
         protected void* display = null;
@@ -19,12 +21,37 @@ namespace VASharp
         /// <summary>
         /// Initializes a new instance of the <see cref="VADisplay"/> class.
         /// </summary>
+        /// <param name="options">
+        /// Options for the Video Acceleration library.
+        /// </param>
         /// <param name="logger">
         /// A <see cref="ILogger"/> to which diagnostic messages will be logged.
         /// </param>
-        protected VADisplay(ILogger logger)
+        protected VADisplay(VAOptions options, ILogger logger)
         {
+            this.options = options ?? throw new ArgumentNullException(nameof(options));
             this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            if (options.LibraryPath != null)
+            {
+                NativeLibrary.SetDllImportResolver(typeof(VADisplay).Assembly, this.LibraryResolver);
+            }
+
+            if (options.DriverPath != null)
+            {
+                Environment.SetEnvironmentVariable("LIBVA_DRIVERS_PATH", options.DriverPath);
+            }
+        }
+
+        protected virtual IntPtr LibraryResolver(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            // On Windows, try to load "va.dll" in LibraryPath, if one was specified.
+            if (libraryName == "va" && this.options.LibraryPath != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return NativeLibrary.Load(Path.Combine(this.options.LibraryPath, "va.dll"));
+            }
+
+            return IntPtr.Zero;
         }
 
         /// <inheritdoc/>
@@ -67,7 +94,7 @@ namespace VASharp
         /// </summary>
         protected void Initialize()
         {
-            this.loggerHandle = GCHandle.Alloc(this.logger, GCHandleType.Pinned);
+            this.loggerHandle = GCHandle.Alloc(this.logger);
 
             Methods.vaSetErrorCallback(this.display, &OnError, (void*)GCHandle.ToIntPtr(this.loggerHandle));
             Methods.vaSetInfoCallback(this.display, &OnInfo, (void*)GCHandle.ToIntPtr(this.loggerHandle));
@@ -308,7 +335,7 @@ namespace VASharp
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        private static unsafe void OnInfo(void *user_context, sbyte *message)
+        private static unsafe void OnInfo(void* user_context, sbyte* message)
         {
             var loggerHandle = GCHandle.FromIntPtr((nint)user_context);
             var logger = (ILogger)loggerHandle.Target!;
