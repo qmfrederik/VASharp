@@ -23,6 +23,20 @@ jobs:
       env:
         VCPKG_INSTALLED_DIR: "${{ github.workspace }}/vcpkg_installed"
         VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+    - name: Install ClangSharpPInvokeGenerator
+      run: |
+        dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3
+    - name: Generate C# bindings
+      run: |
+        ClangSharpPInvokeGenerator @libva-win32.rsp || true
+      working-directory: ./VASharp/Native
+    - name: Publish win32 bindings as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: VASharp-win32-bindings
+        path: |
+          VASharp/Native
+      if: matrix.triplet == 'x64-windows'
     - name: Publish native files packages as artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -69,6 +83,11 @@ jobs:
       with:
         name: VASharp-x86-windows
         path: vcpkg_installed/x86-windows/
+    - uses: actions/download-artifact@v4
+      name: Download x86-windows binaries
+      with:
+        name: VASharp-win32-bindings
+        path: VASharp/Native/
     - name: Build
       run: dotnet build
     - name: Test
