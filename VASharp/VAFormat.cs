@@ -2,6 +2,7 @@
 
 namespace VASharp
 {
+    [Flags]
     public enum VAFormat : uint
     {
         VA_RT_FORMAT_YUV420 = Methods.VA_RT_FORMAT_YUV420,
