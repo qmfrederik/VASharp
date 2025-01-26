@@ -62,16 +62,6 @@ namespace VASharp
         /// </summary>
         public Version? Version { get; private set; }
 
-        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        private static unsafe void OnError(void *user_context, sbyte *message)
-        {
-            var loggerHandle = GCHandle.FromIntPtr((nint)user_context);
-            var logger = (ILogger)loggerHandle.Target!;
-            var str = new string(message);
-
-            logger.LogError(str);
-        }
-
         /// <summary>
         /// Initialize the library, and set up logging callbacks.
         /// </summary>
@@ -105,6 +95,16 @@ namespace VASharp
             {
                 throw new VAException(status);
             }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+        private static unsafe void OnError(void* user_context, sbyte* message)
+        {
+            var loggerHandle = GCHandle.FromIntPtr((nint)user_context);
+            var logger = (ILogger)loggerHandle.Target!;
+            var str = new string(message);
+
+            logger.LogError(str);
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
