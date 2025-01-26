@@ -24,7 +24,7 @@ namespace VASharp
         public DrmDisplay(VAOptions options, ILogger<DrmDisplay> logger)
             : base(options, logger)
         {
-            this.stream = File.Open(options.DrmPath!, FileMode.Open, FileAccess.ReadWrite);
+            this.stream = File.Open(options.DrmPath!, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
 
 #if WITHOUT_DRM
             throw new NotSupportedException("DrmDisplay is not supported on this build of VASharp.");

@@ -3,6 +3,7 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <DefineConstants Condition="Exists('$(MSBuildProjectDirectory)/Native/Yuv.cs')">$(DefineConstants);HAVE_YUV</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
