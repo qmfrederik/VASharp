@@ -14,5 +14,10 @@
         /// Gets or sets the path to the director in which the va drivers are located.
         /// </summary>
         public string? DriverPath { get; set; }
+
+        /// <summary>
+        /// On Linux, the path to the DRI device
+        /// </summary>
+        public string? DrmPath { get; set; } = "/dev/dri/renderD128";
     }
 }
