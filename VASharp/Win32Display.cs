@@ -19,9 +19,13 @@ namespace VASharp
         public Win32Display(ILogger<Win32Display> logger)
             : base(logger)
         {
+#if WITHOUT_WIN32
+            throw new NotSupportedException("Win32Display is not supported on this build of VASharp.");
+#else
             this.display = Win32Methods.vaGetDisplayWin32(null);
 
             this.Initialize();
+#endif
         }
     }
 }

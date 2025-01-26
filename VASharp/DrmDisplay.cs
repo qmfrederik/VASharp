@@ -23,10 +23,13 @@ namespace VASharp
             : base(logger)
         {
             this.stream = stream ?? throw new ArgumentNullException(nameof(stream));
-            
-            this.display = DrmMethods.vaGetDisplayDRM((int)stream.SafeFileHandle.DangerousGetHandle());
 
+#if WITHOUT_DRM
+            throw new NotSupportedException("DrmDisplay is not supported on this build of VASharp.");
+#else
+            this.display = DrmMethods.vaGetDisplayDRM((int)stream.SafeFileHandle.DangerousGetHandle());
             this.Initialize();
+#endif
         }
 
         /// <inheritdoc/>
