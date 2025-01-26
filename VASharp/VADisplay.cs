@@ -260,6 +260,110 @@ namespace VASharp
         }
 
         /// <summary>
+        /// Blocks until all pending operations on the render target have been completed. Upon return it is safe to use the render target for a different picture.
+        /// </summary>
+        /// <param name="surface">
+        /// The surface for which to wait for pending operations to complete.
+        /// </param>
+        public void SyncSurface(uint surface)
+        {
+            Verify.NotDisposed(this);
+
+            int ret = Methods.vaSyncSurface(
+                this.display,
+                surface);
+            VAException.ThrowOnError(ret);
+        }
+
+        /// <summary>
+        /// Derive an VAImage from an existing surface. This interface will derive a VAImage and corresponding image buffer from an existing VA Surface.
+        /// The image buffer can then be mapped/unmapped for direct CPU access. This operation is only possible on implementations with direct rendering capabilities and internal surface formats that can be represented with a VAImage.
+        /// When the operation is not possible this interface will return VA_STATUS_ERROR_OPERATION_FAILED. Clients should then fall back to using vaCreateImage + vaPutImage to accomplish the same task in an indirect manner.
+        /// </summary>
+        /// <remarks>
+        /// When directly accessing a surface special care must be taken to insure proper synchronization with the graphics hardware.
+        /// Clients should call vaQuerySurfaceStatus to insure that a surface is not the target of concurrent rendering or currently being displayed by an overlay.
+        /// Additionally nothing about the contents of a surface should be assumed following a vaPutSurface. Implementations are free to modify the surface for scaling or subpicture blending within a call to vaPutImage.
+        /// Calls to vaPutImage or vaGetImage using the same surface from which the image has been derived will return VA_STATUS_ERROR_SURFACE_BUSY. vaPutImage or vaGetImage with other surfaces is supported.
+        /// An image created with vaDeriveImage should be freed with vaDestroyImage. The image and image buffer structures will be destroyed; however, the underlying surface will remain unchanged until freed with vaDestroySurfaces.
+        /// </summary>
+        /// <param name="surface">
+        /// The surface for which to derive the image.
+        /// </param>
+        /// <returns>
+        /// A <see cref="_VAImage"/> which represents the derived image.
+        /// </returns>
+        public _VAImage DeriveImage(uint surface)
+        {
+            Verify.NotDisposed(this);
+
+            _VAImage image;
+            int ret = Methods.vaDeriveImage(
+                this.display,
+                surface,
+                &image);
+            VAException.ThrowOnError(ret);
+
+            return image;
+        }
+
+        /// <summary>
+        /// Frees all resources associated with an image.
+        /// </summary>
+        /// <param name="image">
+        /// The image for which to free the associated resources.
+        /// </param>
+        public void DestroyImage(_VAImage image)
+        {
+            Verify.NotDisposed(this);
+
+            int ret = Methods.vaDestroyImage(
+                this.display,
+                image.image_id);
+
+            VAException.ThrowOnError(ret);
+        }
+
+        /// <summary>
+        /// Map data store of the buffer into the client's address space.
+        /// </summary>
+        /// <param name="image">
+        /// The image for which to map the buffer.
+        /// </param>
+        /// <returns>
+        /// A <see cref="Span{byte}"/> which represents teh buffer in the client's address space.
+        /// </returns>
+        public Span<byte> MapBuffer(_VAImage image)
+        {
+            Verify.NotDisposed(this);
+            
+            void* bytes;
+            int ret = Methods.vaMapBuffer(
+                this.display,
+                image.buf,
+                &bytes);
+            VAException.ThrowOnError(ret);
+
+            return new Span<byte>(bytes, (int)image.data_size);
+        }
+
+        /// <summary>
+        /// Unmaps the data store of a buffer from the client's address space.
+        /// </summary>
+        /// <param name="image">
+        /// The image for which to unmap the buffer.
+        /// </param>
+        public void UnmapBuffer(_VAImage image)
+        {
+            Verify.NotDisposed(this);
+
+            int ret = Methods.vaUnmapBuffer(
+                this.display,
+                image.buf);
+            VAException.ThrowOnError(ret);
+        }
+
+        /// <summary>
         /// Creates a context.
         /// </summary>
         /// <param name="configId">
