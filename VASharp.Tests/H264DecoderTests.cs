@@ -116,25 +116,10 @@ namespace VASharp.Tests
                 .BuildServiceProvider();
 
             using var display = provider.GetRequiredService<VADisplay>();
-
-            var profiles = display.QueryConfigProfiles();
-            Assert.Contains(Profile, profiles);
-
-            var entryPoints = display.QueryConfigEntrypoints(Profile);
-            Assert.Contains(VAEntrypoint.VAEntrypointVLD, entryPoints);
-
-            var format = (VAFormat)display.GetConfigAttribute(Profile, VAEntrypoint.VAEntrypointVLD, VAConfigAttribType.VAConfigAttribRTFormat);
-            Assert.True(format.HasFlag(Format));
-
-            var config = display.CreateConfig(Profile, VAEntrypoint.VAEntrypointVLD, Array.Empty<_VAConfigAttrib>());
-
-            var surface = display.CreateSurfaces(
-                Format,
-                Width,
-                Height);
+            using var decoder = provider.GetRequiredService<VADecoder>();
 
             pictureParameters.frame_num = 0;
-            pictureParameters.CurrPic.picture_id = surface;
+            pictureParameters.CurrPic.picture_id = decoder.Surface;
             pictureParameters.CurrPic.TopFieldOrderCnt = 0;
             pictureParameters.CurrPic.BottomFieldOrderCnt = 0;
 
@@ -168,35 +153,34 @@ namespace VASharp.Tests
             sliceParameter.slice_data_flag = Methods.VA_SLICE_DATA_FLAG_ALL;
             sliceParameter.slice_data_size = (uint)sliceBytes.Length;
 
-            var context = display.CreateContext(
-                config,
+            decoder.Initialize(
+                Profile,
+                Format,
                 Width,
-                ((Height + 15) / 16) * 16,
-                VAContextFlags.VA_PROGRESSIVE,
-                surface);
+                Height);
 
-            var pictureParameterBuffer = context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameters);
-            var iqMatrixBuffer = context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
-            var sliceParameterbuffer = context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
+            Assert.NotNull(decoder.Context);
+            var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameters);
+            var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
+            var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
             fixed (byte* sliceData = sliceBytes)
             {
                 // TODO: rewrite this as Span<byte>
-                var sliceDataBuffer = context.CreateBuffer(
+                var sliceDataBuffer = decoder.Context.CreateBuffer(
                     VABufferType.VASliceDataBufferType,
                     sliceData,
                     sliceBytes.Length);
 
-                context.BeginPicture(surface);
-                context.RenderPicture(pictureParameterBuffer, iqMatrixBuffer);
-                context.RenderPicture(sliceParameterbuffer, sliceDataBuffer);
-
-                context.EndPicture();
+                decoder.Render(
+                    pictureParameterBuffer,
+                    iqMatrixBuffer,
+                    sliceParameterbuffer,
+                    sliceDataBuffer);
             }
 
-            display.SyncSurface(surface);
 
-            var image = display.DeriveImage(surface);
+            var image = display.DeriveImage(decoder.Surface);
 
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
@@ -224,7 +208,9 @@ namespace VASharp.Tests
                     height: Height);
 
 #if NET9_0_OR_GREATER
-                File.WriteAllBytes("data.rgb", argb);
+                File.WriteAllBytes("h264.rgb", argb);
+#else
+                File.WriteAllBytes("h264.rgb", argb.ToArray());
 #endif
             }
 #endif
@@ -232,9 +218,6 @@ namespace VASharp.Tests
             display.UnmapBuffer(image);
 
             display.DestroyImage(image);
-
-            display.DestroySurface(surface);
-            display.DestroyConfig(config);
         }
 
         private static void InitPicture(ref _VAPictureH264 picture)

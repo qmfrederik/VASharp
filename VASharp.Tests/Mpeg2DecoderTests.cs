@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using VASharp.Native;
 using Xunit;
@@ -87,30 +89,31 @@ namespace VASharp.Tests
             const int Width = 16;
             const int Height = 16;
 
-            using var display = new DrmDisplay(new VAOptions(), NullLogger<DrmDisplay>.Instance);
+            using var provider = new ServiceCollection()
+                .AddLogging()
+                .AddVideoAcceleration(
+                (options) =>
+                {
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        // For the time being, hardcode the paths to:
+                        // - The va.dll and va_win32.dll libraries which can be installed via vcpkg
+                        // - The drivers which can be downloaded at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/
+                        options.LibraryPath = Path.GetFullPath("../../../../vcpkg_installed/x64-windows/bin/");
+                        options.DriverPath = Path.GetFullPath("../../../../");
+                    }
+                })
+                .BuildServiceProvider();
+                
+            using var display = provider.GetRequiredService<VADisplay>();
+            using var decoder = provider.GetRequiredService<VADecoder>();
 
-            var profiles = display.QueryConfigProfiles();
-            Assert.Contains(Profile, profiles);
-
-            var entryPoints = display.QueryConfigEntrypoints(Profile);
-            Assert.Contains(VAEntrypoint.VAEntrypointVLD, entryPoints);
-
-            var format = (VAFormat)display.GetConfigAttribute(Profile, VAEntrypoint.VAEntrypointVLD, VAConfigAttribType.VAConfigAttribRTFormat);
-            Assert.True(format.HasFlag(Format));
-
-            var config = display.CreateConfig(Profile, VAEntrypoint.VAEntrypointVLD, Array.Empty<_VAConfigAttrib>());
-
-            var surface = display.CreateSurfaces(
+            decoder.Initialize(
+                Profile,
                 Format,
                 Width,
                 Height);
-
-            var context = display.CreateContext(
-                config,
-                Width,
-                ((Height + 15) / 16) * 16,
-                VAContextFlags.VA_PROGRESSIVE,
-                surface);
+            Assert.NotNull(decoder.Context);
 
             var iqMatrix =
                 new _VAIQMatrixBufferMPEG2()
@@ -127,56 +130,56 @@ namespace VASharp.Tests
             fixed (byte* clip = mpeg2_clip)
             fixed (byte* intraQuantiserMatrix = intra_quantiser_matrix)
             {
-                var pictureParameterBuffer = context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
-                var iqMatrixBuffer = context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
-                var sliceParameterbuffer = context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
+                var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
+                var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
+                var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
-                var sliceDataBuffer = context.CreateBuffer(
+                var sliceDataBuffer = decoder.Context.CreateBuffer(
                     VABufferType.VASliceDataBufferType,
                     clip + 0x2f,
                     0xc4 - 0x2f + 1);
 
-                context.BeginPicture(surface);
-                context.RenderPicture(pictureParameterBuffer);
-                context.RenderPicture(iqMatrixBuffer);
-                context.RenderPicture(sliceParameterbuffer);
-                context.RenderPicture(sliceDataBuffer);
-
-                context.EndPicture();
+                decoder.Render(
+                    pictureParameterBuffer,
+                    iqMatrixBuffer,
+                    sliceParameterbuffer,
+                    sliceDataBuffer);
             }
-
-            display.SyncSurface(surface);
             
-            var image = display.DeriveImage(surface);
+            var image = display.DeriveImage(decoder.Surface);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
 
             var bytes = display.MapBuffer(image);
 
 #if HAVE_YUV
-            byte* argb = stackalloc byte[Width * 4 * Height];
+            Span<byte> argb = stackalloc byte[Width * 4 * Height];
 
             // Use libyuv to convert the pixel in nv12 format to ARGB format
             fixed(byte* raw = bytes)
+            fixed(byte* rawArgb = argb)
             {
                 int ret = Yuv.NV12ToARGB(
                     src_y: raw + image.offsets[0],
                     src_stride_y: (int)image.pitches[0],
                     src_uv: raw + image.offsets[1],
-                    src_stride_uv: (int)image.pitches[0],
-                    dst_argb: argb,
+                    src_stride_uv: (int)image.pitches[1],
+                    dst_argb: rawArgb,
                     dst_stride_argb: Width * 4,
                     width: Width,
                     height: Height);
+
+#if NET9_0_OR_GREATER
+                File.WriteAllBytes("mpeg2.rgb", argb);
+#else
+                File.WriteAllBytes("mpeg2.rgb", argb.ToArray());
+#endif
             }
 #endif
 
             display.UnmapBuffer(image);
 
             display.DestroyImage(image);
-
-            display.DestroySurface(surface);
-            display.DestroyConfig(config);
         }
     }
 }
