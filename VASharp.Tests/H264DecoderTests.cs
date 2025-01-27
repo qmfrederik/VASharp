@@ -8,6 +8,7 @@ namespace VASharp.Tests
     {
         const int Width = 320;
         const int Height = 240;
+        const int DataSize = 12071;
 
         _VAPictureParameterBufferH264 pictureParameters = new _VAPictureParameterBufferH264()
         {
@@ -84,7 +85,7 @@ namespace VASharp.Tests
             const VAFormat Format = VAFormat.VA_RT_FORMAT_YUV420;
 
             var videoBytes = new Span<byte>(File.ReadAllBytes("h264.mp4"));
-            var sliceBytes = videoBytes.Slice(52, 12071);
+            var sliceBytes = videoBytes.Slice(52, DataSize);
 
             var provider = this.GetServiceProvider();
             using var display = provider.GetRequiredService<VADisplay>();
@@ -136,21 +137,15 @@ namespace VASharp.Tests
             var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
             var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
-            fixed (byte* sliceData = sliceBytes)
-            {
-                // TODO: rewrite this as Span<byte>
-                var sliceDataBuffer = decoder.Context.CreateBuffer(
-                    VABufferType.VASliceDataBufferType,
-                    sliceData,
-                    sliceBytes.Length);
+            var sliceDataBuffer = decoder.Context.CreateBuffer(
+                VABufferType.VASliceDataBufferType,
+                sliceBytes);
 
-                decoder.Render(
-                    pictureParameterBuffer,
-                    iqMatrixBuffer,
-                    sliceParameterbuffer,
-                    sliceDataBuffer);
-            }
-
+            decoder.Render(
+                pictureParameterBuffer,
+                iqMatrixBuffer,
+                sliceParameterbuffer,
+                sliceDataBuffer);
 
             var image = display.DeriveImage(decoder.Surface);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
