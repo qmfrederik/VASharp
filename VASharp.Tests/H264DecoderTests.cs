@@ -1,5 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using System.Runtime.InteropServices;
+using Microsoft.Extensions.DependencyInjection;
 using VASharp.Native;
 using Xunit;
 
@@ -111,11 +111,14 @@ namespace VASharp.Tests
                 .AddVideoAcceleration(
                 (options) =>
                 {
-                    // For the time being, hardcode the paths to:
-                    // - The va.dll and va_win32.dll libraries which can be installed via vcpkg
-                    // - The drivers which can be downloaded at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/
-                    options.LibraryPath = Path.GetFullPath("../../../../vcpkg_installed/x64-windows/bin/");
-                    options.DriverPath = Path.GetFullPath("../../../../");
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        // For the time being, hardcode the paths to:
+                        // - The va.dll and va_win32.dll libraries which can be installed via vcpkg
+                        // - The drivers which can be downloaded at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/
+                        options.LibraryPath = Path.GetFullPath("../../../../vcpkg_installed/x64-windows/bin/");
+                        options.DriverPath = Path.GetFullPath("../../../../");
+                    }
                 })
                 .BuildServiceProvider();
 
@@ -168,6 +171,10 @@ namespace VASharp.Tests
                 InitPicture(ref sliceParameter.RefPicList1[i]);
             }
 
+            sliceParameter.slice_data_offset = 0;
+            sliceParameter.slice_data_flag = Methods.VA_SLICE_DATA_FLAG_ALL;
+            sliceParameter.slice_data_size = (uint)sliceBytes.Length;
+
             var context = display.CreateContext(
                 config,
                 Width,
@@ -188,10 +195,8 @@ namespace VASharp.Tests
                     sliceBytes.Length);
 
                 context.BeginPicture(surface);
-                context.RenderPicture(pictureParameterBuffer);
-                context.RenderPicture(iqMatrixBuffer);
-                context.RenderPicture(sliceParameterbuffer);
-                context.RenderPicture(sliceDataBuffer);
+                context.RenderPicture(pictureParameterBuffer, iqMatrixBuffer);
+                context.RenderPicture(sliceParameterbuffer, sliceDataBuffer);
 
                 context.EndPicture();
             }
@@ -199,9 +204,12 @@ namespace VASharp.Tests
             display.SyncSurface(surface);
 
             var image = display.DeriveImage(surface);
+
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
-
+            
             var bytes = display.MapBuffer(image);
 
 #if HAVE_YUV
@@ -214,7 +222,7 @@ namespace VASharp.Tests
                     src_y: raw + image.offsets[0],
                     src_stride_y: (int)image.pitches[0],
                     src_uv: raw + image.offsets[1],
-                    src_stride_uv: (int)image.pitches[0],
+                    src_stride_uv: (int)image.pitches[1],
                     dst_argb: argb,
                     dst_stride_argb: Width * 4,
                     width: Width,
