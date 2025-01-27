@@ -35,6 +35,8 @@ namespace VASharp
                 services.AddScoped<VADisplay, DrmDisplay>();
             }
 
+            services.AddScoped<VADecoder>();
+
             configureOptions?.Invoke(options);
 
             if (options.LibraryPath != null && !Directory.Exists(options.LibraryPath))

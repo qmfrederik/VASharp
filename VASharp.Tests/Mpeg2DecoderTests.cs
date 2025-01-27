@@ -1,11 +1,11 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.Versioning;
 using VASharp.Native;
 using Xunit;
 
 namespace VASharp.Tests
 {
-    public unsafe class Mpeg2DecoderTests
+    public unsafe class Mpeg2DecoderTests : DecoderTests
     {
         // Data dump of a 16x16 MPEG2 video clip with a single frame
         private byte[] mpeg2_clip =
@@ -87,30 +87,16 @@ namespace VASharp.Tests
             const int Width = 16;
             const int Height = 16;
 
-            using var display = new DrmDisplay(new VAOptions(), NullLogger<DrmDisplay>.Instance);
+            var provider = this.GetServiceProvider();
+            using var display = provider.GetRequiredService<VADisplay>();
+            using var decoder = provider.GetRequiredService<VADecoder>();
 
-            var profiles = display.QueryConfigProfiles();
-            Assert.Contains(Profile, profiles);
-
-            var entryPoints = display.QueryConfigEntrypoints(Profile);
-            Assert.Contains(VAEntrypoint.VAEntrypointVLD, entryPoints);
-
-            var format = (VAFormat)display.GetConfigAttribute(Profile, VAEntrypoint.VAEntrypointVLD, VAConfigAttribType.VAConfigAttribRTFormat);
-            Assert.True(format.HasFlag(Format));
-
-            var config = display.CreateConfig(Profile, VAEntrypoint.VAEntrypointVLD, Array.Empty<_VAConfigAttrib>());
-
-            var surface = display.CreateSurfaces(
+            decoder.Initialize(
+                Profile,
                 Format,
                 Width,
                 Height);
-
-            var context = display.CreateContext(
-                config,
-                Width,
-                ((Height + 15) / 16) * 16,
-                VAContextFlags.VA_PROGRESSIVE,
-                surface);
+            Assert.NotNull(decoder.Context);
 
             var iqMatrix =
                 new _VAIQMatrixBufferMPEG2()
@@ -127,56 +113,32 @@ namespace VASharp.Tests
             fixed (byte* clip = mpeg2_clip)
             fixed (byte* intraQuantiserMatrix = intra_quantiser_matrix)
             {
-                var pictureParameterBuffer = context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
-                var iqMatrixBuffer = context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
-                var sliceParameterbuffer = context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
+                var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
+                var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
+                var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
-                var sliceDataBuffer = context.CreateBuffer(
+                var sliceDataBuffer = decoder.Context.CreateBuffer(
                     VABufferType.VASliceDataBufferType,
                     clip + 0x2f,
                     0xc4 - 0x2f + 1);
 
-                context.BeginPicture(surface);
-                context.RenderPicture(pictureParameterBuffer);
-                context.RenderPicture(iqMatrixBuffer);
-                context.RenderPicture(sliceParameterbuffer);
-                context.RenderPicture(sliceDataBuffer);
-
-                context.EndPicture();
+                decoder.Render(
+                    pictureParameterBuffer,
+                    iqMatrixBuffer,
+                    sliceParameterbuffer,
+                    sliceDataBuffer);
             }
-
-            display.SyncSurface(surface);
             
-            var image = display.DeriveImage(surface);
+            var image = display.DeriveImage(decoder.Surface);
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
+            Assert.Equal((uint)Methods.VA_FOURCC_NV12, image.format.fourcc);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
 
-            var bytes = display.MapBuffer(image);
-
-#if HAVE_YUV
-            byte* argb = stackalloc byte[Width * 4 * Height];
-
-            // Use libyuv to convert the pixel in nv12 format to ARGB format
-            fixed(byte* raw = bytes)
-            {
-                int ret = Yuv.NV12ToARGB(
-                    src_y: raw + image.offsets[0],
-                    src_stride_y: (int)image.pitches[0],
-                    src_uv: raw + image.offsets[1],
-                    src_stride_uv: (int)image.pitches[0],
-                    dst_argb: argb,
-                    dst_stride_argb: Width * 4,
-                    width: Width,
-                    height: Height);
-            }
-#endif
-
-            display.UnmapBuffer(image);
+            this.SaveImage(display, image, "mpeg2.rgb");
 
             display.DestroyImage(image);
-
-            display.DestroySurface(surface);
-            display.DestroyConfig(config);
         }
     }
 }

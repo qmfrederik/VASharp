@@ -1,24 +1,11 @@
-﻿using System.Runtime.InteropServices;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using VASharp.Native;
 using Xunit;
 
 namespace VASharp.Tests
 {
-    public unsafe class H264DecoderTests
+    public unsafe class H264DecoderTests : DecoderTests
     {
-        static H264DecoderTests()
-        {
-            const string YuvPath = "../../../../vcpkg_installed/x64-windows/bin/libyuv.dll";
-
-            // When on Windows, load libyuv if available
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                && File.Exists(YuvPath))
-            {
-                NativeLibrary.TryLoad(YuvPath, out nint _);
-            }
-        }
-
         const int Width = 320;
         const int Height = 240;
 
@@ -99,42 +86,12 @@ namespace VASharp.Tests
             var videoBytes = new Span<byte>(File.ReadAllBytes("h264.mp4"));
             var sliceBytes = videoBytes.Slice(52, 12071);
 
-            using var provider = new ServiceCollection()
-                .AddLogging()
-                .AddVideoAcceleration(
-                (options) =>
-                {
-                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        // For the time being, hardcode the paths to:
-                        // - The va.dll and va_win32.dll libraries which can be installed via vcpkg
-                        // - The drivers which can be downloaded at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/
-                        options.LibraryPath = Path.GetFullPath("../../../../vcpkg_installed/x64-windows/bin/");
-                        options.DriverPath = Path.GetFullPath("../../../../");
-                    }
-                })
-                .BuildServiceProvider();
-
+            var provider = this.GetServiceProvider();
             using var display = provider.GetRequiredService<VADisplay>();
-
-            var profiles = display.QueryConfigProfiles();
-            Assert.Contains(Profile, profiles);
-
-            var entryPoints = display.QueryConfigEntrypoints(Profile);
-            Assert.Contains(VAEntrypoint.VAEntrypointVLD, entryPoints);
-
-            var format = (VAFormat)display.GetConfigAttribute(Profile, VAEntrypoint.VAEntrypointVLD, VAConfigAttribType.VAConfigAttribRTFormat);
-            Assert.True(format.HasFlag(Format));
-
-            var config = display.CreateConfig(Profile, VAEntrypoint.VAEntrypointVLD, Array.Empty<_VAConfigAttrib>());
-
-            var surface = display.CreateSurfaces(
-                Format,
-                Width,
-                Height);
+            using var decoder = provider.GetRequiredService<VADecoder>();
 
             pictureParameters.frame_num = 0;
-            pictureParameters.CurrPic.picture_id = surface;
+            pictureParameters.CurrPic.picture_id = decoder.Surface;
             pictureParameters.CurrPic.TopFieldOrderCnt = 0;
             pictureParameters.CurrPic.BottomFieldOrderCnt = 0;
 
@@ -168,73 +125,43 @@ namespace VASharp.Tests
             sliceParameter.slice_data_flag = Methods.VA_SLICE_DATA_FLAG_ALL;
             sliceParameter.slice_data_size = (uint)sliceBytes.Length;
 
-            var context = display.CreateContext(
-                config,
+            decoder.Initialize(
+                Profile,
+                Format,
                 Width,
-                ((Height + 15) / 16) * 16,
-                VAContextFlags.VA_PROGRESSIVE,
-                surface);
+                Height);
 
-            var pictureParameterBuffer = context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameters);
-            var iqMatrixBuffer = context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
-            var sliceParameterbuffer = context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
+            Assert.NotNull(decoder.Context);
+            var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameters);
+            var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
+            var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
             fixed (byte* sliceData = sliceBytes)
             {
                 // TODO: rewrite this as Span<byte>
-                var sliceDataBuffer = context.CreateBuffer(
+                var sliceDataBuffer = decoder.Context.CreateBuffer(
                     VABufferType.VASliceDataBufferType,
                     sliceData,
                     sliceBytes.Length);
 
-                context.BeginPicture(surface);
-                context.RenderPicture(pictureParameterBuffer, iqMatrixBuffer);
-                context.RenderPicture(sliceParameterbuffer, sliceDataBuffer);
-
-                context.EndPicture();
+                decoder.Render(
+                    pictureParameterBuffer,
+                    iqMatrixBuffer,
+                    sliceParameterbuffer,
+                    sliceDataBuffer);
             }
 
-            display.SyncSurface(surface);
 
-            var image = display.DeriveImage(surface);
-
+            var image = display.DeriveImage(decoder.Surface);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
             Assert.Equal((uint)Methods.VA_FOURCC_NV12, image.format.fourcc);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
             
-            var bytes = display.MapBuffer(image);
-
-#if HAVE_YUV
-            Span<byte> argb = stackalloc byte[Width * 4 * Height];
-
-            // Use libyuv to convert the pixel in nv12 format to ARGB format
-            fixed(byte* raw = bytes)
-            fixed(byte* rawArgb = argb)
-            {
-                int ret = Yuv.NV12ToARGB(
-                    src_y: raw + image.offsets[0],
-                    src_stride_y: (int)image.pitches[0],
-                    src_uv: raw + image.offsets[1],
-                    src_stride_uv: (int)image.pitches[1],
-                    dst_argb: rawArgb,
-                    dst_stride_argb: Width * 4,
-                    width: Width,
-                    height: Height);
-
-#if NET9_0_OR_GREATER
-                File.WriteAllBytes("data.rgb", argb);
-#endif
-            }
-#endif
-
-            display.UnmapBuffer(image);
+            this.SaveImage(display, image, "h264.rgb");
 
             display.DestroyImage(image);
-
-            display.DestroySurface(surface);
-            display.DestroyConfig(config);
         }
 
         private static void InitPicture(ref _VAPictureH264 picture)
