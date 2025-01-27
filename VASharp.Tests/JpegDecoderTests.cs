@@ -193,20 +193,16 @@ namespace VASharp.Tests
             var huffmanTableBuffer = decoder.Context.CreateBuffer(VABufferType.VAHuffmanTableBufferType, ref huffmanTable);
             var sliceParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameters);
 
-            fixed (byte* sliceData = sliceBytes)
-            {
-                var sliceDataBuffer = decoder.Context.CreateBuffer(
-                    VABufferType.VASliceDataBufferType,
-                    sliceData,
-                    sliceBytes.Length);
+            var sliceDataBuffer = decoder.Context.CreateBuffer(
+                VABufferType.VASliceDataBufferType,
+                sliceBytes);
 
-                decoder.Render(
-                    pictureParameterBuffer,
-                    iqMatrixBuffer,
-                    huffmanTableBuffer,
-                    sliceParameterBuffer,
-                    sliceDataBuffer);
-            }
+            decoder.Render(
+                pictureParameterBuffer,
+                iqMatrixBuffer,
+                huffmanTableBuffer,
+                sliceParameterBuffer,
+                sliceDataBuffer);
 
             var image = display.DeriveImage(decoder.Surface);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);

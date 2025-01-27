@@ -110,24 +110,19 @@ namespace VASharp.Tests
             this.intra_quantiser_matrix.CopyTo(new Span<byte>(iqMatrix.intra_quantiser_matrix, 64));
             this.non_intra_quantiser_matrix.CopyTo(new Span<byte>(iqMatrix.non_intra_quantiser_matrix, 16));
 
-            fixed (byte* clip = mpeg2_clip)
-            fixed (byte* intraQuantiserMatrix = intra_quantiser_matrix)
-            {
-                var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
-                var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
-                var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
+            var pictureParameterBuffer = decoder.Context.CreateBuffer(VABufferType.VAPictureParameterBufferType, ref pictureParameter);
+            var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
+            var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
-                var sliceDataBuffer = decoder.Context.CreateBuffer(
-                    VABufferType.VASliceDataBufferType,
-                    clip + 0x2f,
-                    0xc4 - 0x2f + 1);
+            var sliceDataBuffer = decoder.Context.CreateBuffer(
+                VABufferType.VASliceDataBufferType,
+                new Span<byte>(mpeg2_clip, 0x2f, 0xc4 - 0x2f + 1));
 
-                decoder.Render(
-                    pictureParameterBuffer,
-                    iqMatrixBuffer,
-                    sliceParameterbuffer,
-                    sliceDataBuffer);
-            }
+            decoder.Render(
+                pictureParameterBuffer,
+                iqMatrixBuffer,
+                sliceParameterbuffer,
+                sliceDataBuffer);
             
             var image = display.DeriveImage(decoder.Surface);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);

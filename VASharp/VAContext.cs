@@ -56,19 +56,22 @@ namespace VASharp
             return buf_id;
         }
 
-        public uint CreateBuffer(VABufferType type, byte* value, int length)
+        public uint CreateBuffer(VABufferType type, Span<byte> data)
         {
             Verify.NotDisposed(this);
 
             uint buf_id;
-            int ret = Methods.vaCreateBuffer(
-                this.display,
-                this.handle,
-                type,
-                (uint)length,
-                1,
-                (void*)value,
-                &buf_id);
+            fixed(byte* value = data)
+            {
+                int ret = Methods.vaCreateBuffer(
+                    this.display,
+                    this.handle,
+                    type,
+                    (uint)data.Length,
+                    1,
+                    (void*)value,
+                    &buf_id);
+            }
 
             return buf_id;
         }

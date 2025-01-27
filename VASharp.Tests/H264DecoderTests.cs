@@ -137,20 +137,15 @@ namespace VASharp.Tests
             var iqMatrixBuffer = decoder.Context.CreateBuffer(VABufferType.VAIQMatrixBufferType, ref iqMatrix);
             var sliceParameterbuffer = decoder.Context.CreateBuffer(VABufferType.VASliceParameterBufferType, ref sliceParameter);
 
-            fixed (byte* sliceData = sliceBytes)
-            {
-                // TODO: rewrite this as Span<byte>
-                var sliceDataBuffer = decoder.Context.CreateBuffer(
-                    VABufferType.VASliceDataBufferType,
-                    sliceData,
-                    sliceBytes.Length);
+            var sliceDataBuffer = decoder.Context.CreateBuffer(
+                VABufferType.VASliceDataBufferType,
+                sliceBytes);
 
-                decoder.Render(
-                    pictureParameterBuffer,
-                    iqMatrixBuffer,
-                    sliceParameterbuffer,
-                    sliceDataBuffer);
-            }
+            decoder.Render(
+                pictureParameterBuffer,
+                iqMatrixBuffer,
+                sliceParameterbuffer,
+                sliceDataBuffer);
 
             var image = display.DeriveImage(decoder.Surface);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
