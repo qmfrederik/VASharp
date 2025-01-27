@@ -1,13 +1,11 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using VASharp.Native;
 using Xunit;
 
 namespace VASharp.Tests
 {
-    public unsafe class Mpeg2DecoderTests
+    public unsafe class Mpeg2DecoderTests : DecoderTests
     {
         // Data dump of a 16x16 MPEG2 video clip with a single frame
         private byte[] mpeg2_clip =
@@ -89,22 +87,7 @@ namespace VASharp.Tests
             const int Width = 16;
             const int Height = 16;
 
-            using var provider = new ServiceCollection()
-                .AddLogging()
-                .AddVideoAcceleration(
-                (options) =>
-                {
-                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        // For the time being, hardcode the paths to:
-                        // - The va.dll and va_win32.dll libraries which can be installed via vcpkg
-                        // - The drivers which can be downloaded at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/
-                        options.LibraryPath = Path.GetFullPath("../../../../vcpkg_installed/x64-windows/bin/");
-                        options.DriverPath = Path.GetFullPath("../../../../");
-                    }
-                })
-                .BuildServiceProvider();
-                
+            var provider = this.GetServiceProvider();
             using var display = provider.GetRequiredService<VADisplay>();
             using var decoder = provider.GetRequiredService<VADecoder>();
 
@@ -147,37 +130,13 @@ namespace VASharp.Tests
             }
             
             var image = display.DeriveImage(decoder.Surface);
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
+            Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
+            Assert.Equal((uint)Methods.VA_FOURCC_NV12, image.format.fourcc);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
 
-            var bytes = display.MapBuffer(image);
-
-#if HAVE_YUV
-            Span<byte> argb = stackalloc byte[Width * 4 * Height];
-
-            // Use libyuv to convert the pixel in nv12 format to ARGB format
-            fixed(byte* raw = bytes)
-            fixed(byte* rawArgb = argb)
-            {
-                int ret = Yuv.NV12ToARGB(
-                    src_y: raw + image.offsets[0],
-                    src_stride_y: (int)image.pitches[0],
-                    src_uv: raw + image.offsets[1],
-                    src_stride_uv: (int)image.pitches[1],
-                    dst_argb: rawArgb,
-                    dst_stride_argb: Width * 4,
-                    width: Width,
-                    height: Height);
-
-#if NET9_0_OR_GREATER
-                File.WriteAllBytes("mpeg2.rgb", argb);
-#else
-                File.WriteAllBytes("mpeg2.rgb", argb.ToArray());
-#endif
-            }
-#endif
-
-            display.UnmapBuffer(image);
+            this.SaveImage(display, image, "mpeg2.rgb");
 
             display.DestroyImage(image);
         }
