@@ -90,16 +90,22 @@ namespace VASharp
         /// <param name="bufferId">
         /// The buffer to send to the server.
         /// </param>
-        public void RenderPicture(uint bufferId)
+        public void RenderPicture(params uint[] bufferIds)
         {
             Verify.NotDisposed(this);
 
-            int ret = Methods.vaRenderPicture(
-                this.display,
-                this.handle,
-                &bufferId,
-                1);
-            VAException.ThrowOnError(ret);
+            ArgumentNullException.ThrowIfNull(bufferIds);
+
+            fixed (uint* ids = bufferIds)
+            {
+                int ret = Methods.vaRenderPicture(
+                    this.display,
+                    this.handle,
+                    ids,
+                    bufferIds.Length);
+
+                VAException.ThrowOnError(ret);
+            }
         }
 
         /// <summary>

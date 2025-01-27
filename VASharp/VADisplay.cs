@@ -78,9 +78,12 @@ namespace VASharp
         /// <inheritdoc/>
         public virtual void Dispose()
         {
-            this.Terminate();
+            if (!this.IsDisposed)
+            {
+                this.Terminate();
+                this.loggerHandle.Free();
+            }
 
-            this.loggerHandle.Free();
             this.IsDisposed = true;
         }
 
@@ -298,6 +301,9 @@ namespace VASharp
             Verify.NotDisposed(this);
 
             _VAImage image;
+            image.image_id = Methods.VA_INVALID_ID;
+            image.buf = Methods.VA_INVALID_ID;
+
             int ret = Methods.vaDeriveImage(
                 this.display,
                 surface,

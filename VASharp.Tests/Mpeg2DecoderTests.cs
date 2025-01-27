@@ -90,7 +90,7 @@ namespace VASharp.Tests
             using var display = new DrmDisplay(new VAOptions(), NullLogger<DrmDisplay>.Instance);
 
             var profiles = display.QueryConfigProfiles();
-            Assert.Contains(VAProfile.VAProfileMPEG2Main, profiles);
+            Assert.Contains(Profile, profiles);
 
             var entryPoints = display.QueryConfigEntrypoints(Profile);
             Assert.Contains(VAEntrypoint.VAEntrypointVLD, entryPoints);
