@@ -7,6 +7,18 @@ namespace VASharp.Tests
 {
     public unsafe class H264DecoderTests
     {
+        static H264DecoderTests()
+        {
+            const string YuvPath = "../../../../vcpkg_installed/x64-windows/bin/libyuv.dll";
+
+            // When on Windows, load libyuv if available
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                && File.Exists(YuvPath))
+            {
+                NativeLibrary.TryLoad(YuvPath, out nint _);
+            }
+        }
+
         const int Width = 320;
         const int Height = 240;
 
@@ -98,7 +110,7 @@ namespace VASharp.Tests
         };
 
         [Fact]
-        public void Foo()
+        public void H264Decoding_Works()
         {
             const VAProfile Profile = VAProfile.VAProfileH264High;
             const VAFormat Format = VAFormat.VA_RT_FORMAT_YUV420;
@@ -207,26 +219,32 @@ namespace VASharp.Tests
 
             Assert.NotEqual(Methods.VA_INVALID_ID, image.image_id);
             Assert.NotEqual(Methods.VA_INVALID_ID, image.buf);
+            Assert.Equal((uint)Methods.VA_FOURCC_NV12, image.format.fourcc);
             Assert.Equal(Height, image.height);
             Assert.Equal(Width, image.width);
             
             var bytes = display.MapBuffer(image);
 
 #if HAVE_YUV
-            byte* argb = stackalloc byte[Width * 4 * Height];
+            Span<byte> argb = stackalloc byte[Width * 4 * Height];
 
             // Use libyuv to convert the pixel in nv12 format to ARGB format
             fixed(byte* raw = bytes)
+            fixed(byte* rawArgb = argb)
             {
                 int ret = Yuv.NV12ToARGB(
                     src_y: raw + image.offsets[0],
                     src_stride_y: (int)image.pitches[0],
                     src_uv: raw + image.offsets[1],
                     src_stride_uv: (int)image.pitches[1],
-                    dst_argb: argb,
+                    dst_argb: rawArgb,
                     dst_stride_argb: Width * 4,
                     width: Width,
                     height: Height);
+
+#if NET9_0_OR_GREATER
+                File.WriteAllBytes("data.rgb", argb);
+#endif
             }
 #endif
 

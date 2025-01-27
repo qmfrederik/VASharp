@@ -1,4 +1,4 @@
 {
     "name": "vasharp",
-    "dependencies": [ "libva" ]
+    "dependencies": [ "libva", "libyuv" ]
 }
