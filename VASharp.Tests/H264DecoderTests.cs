@@ -69,25 +69,6 @@ namespace VASharp.Tests
             frame_num = 0,
         };
 
-        /*
-         *  Fields not copied over:
-            .profile_idc = 77,
-            .level_idc = 13,
-            .width = H264_CLIP_WIDTH,
-            .height = H264_CLIP_HEIGHT,
-            .seq_fields = {
-                .bits = {
-                    .gaps_in_frame_num_value_allowed_flag = 0,
-                },
-            },
-            .slice_group_change_rate_minus1 = 0,
-            .pic_init_qs_minus26 = 0,
-            .pic_fields = {
-                .bits = 
-                    .bottom_field_flag = 0,
-                },
-            },*/
-
         _VASliceParameterBufferH264 sliceParameter = new _VASliceParameterBufferH264()
         {
             slice_data_bit_offset = 39,
@@ -109,7 +90,7 @@ namespace VASharp.Tests
             chroma_weight_l1_flag = 0,
         };
 
-        [Fact]
+        [DrmFact]
         public void H264Decoding_Works()
         {
             const VAProfile Profile = VAProfile.VAProfileH264High;
