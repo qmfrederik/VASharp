@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <DefineConstants Condition="Exists('$(MSBuildProjectDirectory)/Native/Yuv.cs')">$(DefineConstants);HAVE_YUV</DefineConstants>
+    <DefineConstants Condition="Exists('$(MSBuildProjectDirectory)/Native/Jpeg.cs')">$(DefineConstants);HAVE_JPEG</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
