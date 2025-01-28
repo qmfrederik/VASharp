@@ -1,0 +1,14 @@
+-cmulti-file
+-cgenerate-helper-types
+-o.
+-nVASharp.Tests
+-mJpeg
+-ljpeg
+-I/usr/lib/gcc/x86_64-linux-gnu/13/include/
+-I/usr/include/
+-fjpeg.h
+-t/usr/include/jpeglib.h
+--remap
+_IO_FILE=void
+--config
+generate-macro-bindings
