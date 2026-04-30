@@ -1,4 +1,4 @@
 {
     "name": "vasharp",
-    "dependencies": [ "libva", "libyuv" ]
+    "dependencies": [ "libva", "libyuv", "libjpeg-turbo" ]
 }
