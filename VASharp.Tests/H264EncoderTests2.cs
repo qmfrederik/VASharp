@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using VASharp.Native;
 using Xunit;
@@ -168,7 +169,8 @@ namespace VASharp.Tests
                 this.config_attrib_num++;
             }
 
-
+            // Not doing packed headers for now, because this requires bitstream manipulations
+#if false
             if (attrib[(int)VAConfigAttribType.VAConfigAttribEncPackedHeaders].value != Methods.VA_ATTRIB_NOT_SUPPORTED)
             {
                 uint tmp = attrib[(int)VAConfigAttribType.VAConfigAttribEncPackedHeaders].value;
@@ -206,6 +208,7 @@ namespace VASharp.Tests
                 enc_packed_header_idx = config_attrib_num;
                 config_attrib_num++;
             }
+#endif
 
             if (attrib[(int)VAConfigAttribType.VAConfigAttribEncInterlaced].value != Methods.VA_ATTRIB_NOT_SUPPORTED)
             {
@@ -269,8 +272,9 @@ namespace VASharp.Tests
 
         private uint config_id;
         private VAContext context_id;
-        private uint[] src_surface;
-        private uint[] ref_surface;
+        private uint[] src_surface = new uint[SURFACE_NUM];
+        private uint[] ref_surface = new uint[SURFACE_NUM];
+        private uint[] coded_buf = new uint[SURFACE_NUM];
 
         private unsafe int setup_encode(VADisplay display)
         {
@@ -307,7 +311,7 @@ namespace VASharp.Tests
                 tmp_surfaceid);
 
             codedbuf_size = (this.frame_width_mbaligned * this.frame_height_mbaligned * 400) / (16 * 16);
-            uint[] coded_buf = new uint[SURFACE_NUM];
+            coded_buf = new uint[SURFACE_NUM];
 
             for (i = 0; i < SURFACE_NUM; i++)
             {
@@ -324,8 +328,30 @@ namespace VASharp.Tests
             return 0;
         }
 
-        private int encode_frames(VADisplay display)
+        private int[] srcsurface_status = new int[SURFACE_NUM];
+        const int SRC_SURFACE_IN_ENCODING = 0;
+
+        _VAEncSequenceParameterBufferH264 seq_param;
+        _VAEncPictureParameterBufferH264 pic_param;
+        _VAEncSliceParameterBufferH264 slice_param;
+
+        const uint frame_count = 60;
+        const int intra_period = 30;
+        const int intra_idr_period = 60;
+        uint numShortTerm = 0;
+        uint current_frame_num = 0;
+        ulong current_IDR_display = 0;
+
+        static int current_slot(ulong current_frame_display)
         {
+            return (int)(current_frame_display % SURFACE_NUM);
+        }
+
+        private unsafe int encode_frames(VADisplay display)
+        {
+            ulong current_frame_display = 0;
+            int current_frame_type;
+
             // Not reading YUV data from file for now, just encode dummy frames.
             /*
             if (srcyuv_fp != NULL) {
@@ -335,7 +361,589 @@ namespace VASharp.Tests
 
             upload_source_YUV_once_for_all(display);
 
+            // Ready for encoding
+            srcsurface_status.AsSpan().Fill(SRC_SURFACE_IN_ENCODING);
+
+            this.seq_param = default;
+            this.pic_param = default;
+            this.slice_param = default;
+
+            // skip encode_syncmode
+
+            for (ulong current_frame_encoding = 0; current_frame_encoding < frame_count; current_frame_encoding++)
+            {
+                encoding2display_order(current_frame_encoding, intra_period, intra_idr_period, ip_period,
+                               &current_frame_display, &current_frame_type);
+
+                if (current_frame_type == FRAME_IDR)
+                {
+                    numShortTerm = 0;
+                    current_frame_num = 0;
+                    current_IDR_display = current_frame_display;
+                }
+
+                /* check if the source frame is ready */
+                while (srcsurface_status[current_slot(current_frame_display)] != SRC_SURFACE_IN_ENCODING)
+                {
+                    Thread.Sleep(10);
+                    Debug.Assert(false);
+                }
+
+                context_id.BeginPicture(src_surface[current_slot(current_frame_display)]);
+
+                if (current_frame_type == FRAME_IDR)
+                {
+                    render_sequence(display, context_id);
+                    render_picture(display, context_id, current_frame_display, current_frame_type);
+                    if (h264_packedheader)
+                    {
+                        render_packedsequence(display, context_id);
+                        render_packedpicture();
+                    }
+                    //if (rc_mode == VA_RC_CBR)
+                    //    render_packedsei();
+                    //render_hrd();
+                }
+                else
+                {
+                    //render_sequence();
+                    render_picture(display, context_id, current_frame_display, current_frame_type);
+                    //if (rc_mode == VA_RC_CBR)
+                    //    render_packedsei();
+                    //render_hrd();
+                }
+
+                render_slice(display, context_id, current_frame_display, current_frame_type);
+
+                //RenderPictureTicks += GetTickCount() - tmp;
+
+                //tmp = GetTickCount();
+                context_id.EndPicture();
+                //EndPictureTicks += GetTickCount() - tmp;
+
+                // Skip encode_syncmode
+                storage_task(display, current_frame_display, current_frame_encoding);
+
+                throw new NotImplementedException();
+                //update_ReferenceFrames();
+            }
+
             throw new NotImplementedException();
+        }
+
+        private void storage_task(VADisplay display, ulong display_order, ulong encode_order)
+        {
+            throw new NotImplementedException();
+        }
+
+
+        private unsafe int render_slice(VADisplay display, VAContext context, ulong current_frame_display, int current_frame_type)
+        {
+            uint slice_param_buf;
+            uint va_status;
+            int i;
+
+            update_RefPicList(current_frame_type);
+
+            /* one frame, one slice */
+            slice_param.macroblock_address = 0;
+            slice_param.num_macroblocks = frame_width_mbaligned * frame_height_mbaligned / (16 * 16); /* Measured by MB */
+            slice_param.slice_type = (byte)((current_frame_type == FRAME_IDR) ? 2 : current_frame_type);
+            if (current_frame_type == FRAME_IDR)
+            {
+                if (current_frame_encoding != 0)
+                    ++slice_param.idr_pic_id;
+            }
+            else if (current_frame_type == FRAME_P)
+            {
+                int refpiclist0_max = (int)(h264_maxref & 0xffff);
+                RefPicList0_P.AsSpan(0, ((refpiclist0_max > 32) ? 32 : refpiclist0_max)).CopyTo(slice_param.RefPicList0.AsSpan());
+
+                for (i = refpiclist0_max; i < 32; i++)
+                {
+                    slice_param.RefPicList0[i].picture_id = Methods.VA_INVALID_SURFACE;
+                    slice_param.RefPicList0[i].flags = Methods.VA_PICTURE_H264_INVALID;
+                }
+            }
+            else if (current_frame_type == FRAME_B)
+            {
+                int refpiclist0_max = (int)(h264_maxref & 0xffff);
+                int refpiclist1_max = (int)((h264_maxref >> 16) & 0xffff);
+
+                RefPicList0_B.AsSpan(0, ((refpiclist0_max > 32) ? 32 : refpiclist0_max)).CopyTo(slice_param.RefPicList0.AsSpan());
+                for (i = refpiclist0_max; i < 32; i++)
+                {
+                    slice_param.RefPicList0[i].picture_id = Methods.VA_INVALID_SURFACE;
+                    slice_param.RefPicList0[i].flags = Methods.VA_PICTURE_H264_INVALID;
+                }
+
+                RefPicList1_B.AsSpan(((refpiclist1_max > 32) ? 32 : refpiclist1_max)).CopyTo(slice_param.RefPicList1.AsSpan());
+                for (i = refpiclist1_max; i < 32; i++)
+                {
+                    slice_param.RefPicList1[i].picture_id = Methods.VA_INVALID_SURFACE;
+                    slice_param.RefPicList1[i].flags = Methods.VA_PICTURE_H264_INVALID;
+                }
+            }
+
+            slice_param.slice_alpha_c0_offset_div2 = 0;
+            slice_param.slice_beta_offset_div2 = 0;
+            slice_param.direct_spatial_mv_pred_flag = 1;
+            slice_param.pic_order_cnt_lsb = (ushort)((current_frame_display - current_IDR_display) % MaxPicOrderCntLsb);
+
+            Debug.Assert(!h264_packedheader);
+
+            /*
+            if (h264_packedheader &&
+                config_attrib[enc_packed_header_idx].value & Methods.VA_ENC_PACKED_HEADER_SLICE)
+                render_packedslice();*/
+
+            slice_param_buf = context.CreateBuffer(
+                VABufferType.VAEncSliceParameterBufferType,
+                ref slice_param);
+
+            context.RenderPicture(slice_param_buf);
+            return 0;
+        }
+        private _VAPictureH264[] RefPicList0_P = new _VAPictureH264[32];
+        private _VAPictureH264[] RefPicList0_B = new _VAPictureH264[32];
+        private _VAPictureH264[] RefPicList1_B = new _VAPictureH264[32];
+
+        private unsafe int update_RefPicList(int current_frame_type)
+        {
+            int current_poc = CurrentCurrPic.TopFieldOrderCnt;
+
+            if (current_frame_type == FRAME_P)
+            {
+                ReferenceFrames.AsSpan(0, (int)numShortTerm).CopyTo(RefPicList0_P.AsSpan());
+                sort_one(RefPicList0_P, 0, (int)(numShortTerm - 1), 0, 1);
+            }
+
+            if (current_frame_type == FRAME_B)
+            {
+                ReferenceFrames.AsSpan(0, (int)numShortTerm).CopyTo(RefPicList0_B.AsSpan());
+                sort_two(RefPicList0_B, 0, (int)(numShortTerm - 1), (uint)current_poc, 0,
+                         1, 0, 1);
+
+                ReferenceFrames.AsSpan(0, (int)numShortTerm).CopyTo(RefPicList1_B.AsSpan());
+                sort_two(RefPicList1_B, 0, (int)(numShortTerm - 1), (uint)current_poc, 0,
+                         0, 1, 0);
+            }
+
+            return 0;
+        }
+        static void partition(ref int i, ref int j, _VAPictureH264[] references, Func<_VAPictureH264, uint> field, uint key, int ascending)
+        {
+            _VAPictureH264 tmp;
+            while (i <= j)
+            {
+                if (ascending != 0)
+                {
+                    while (field(references[i]) < key)
+                        i++;
+                    while (field(references[j]) > key)
+                        j--;
+                }
+                else
+                {
+                    while (field(references[i]) > key)
+                        i++;
+                    while (field(references[j]) < key)
+                        j--;
+                }
+                if (i <= j)
+                {
+                    tmp = references[i];
+                    references[i] = references[j];
+                    references[j] = tmp;
+                    i++;
+                    j--;
+                }
+            }
+        }
+
+        static void sort_one(_VAPictureH264[] references, int left, int right,
+                             int ascending, int frame_idx)
+        {
+            int i = left, j = right;
+            uint key;
+            _VAPictureH264 tmp;
+
+            if (frame_idx != 0)
+            {
+                key = references[(left + right) / 2].frame_idx;
+                partition(ref i, ref j, references, (s) => s.frame_idx, key, ascending);
+            }
+            else
+            {
+                key = (uint)references[(left + right) / 2].TopFieldOrderCnt;
+                partition(ref i, ref j, references, (s) => (uint)s.TopFieldOrderCnt, key, ascending);
+            }
+
+            /* recursion */
+            if (left < j)
+                sort_one(references, left, j, ascending, frame_idx);
+
+            if (i < right)
+                sort_one(references, i, right, ascending, frame_idx);
+        }
+
+        static void sort_two(_VAPictureH264[] references, int left, int right, uint key, uint frame_idx,
+                             int partition_ascending, int list0_ascending, int list1_ascending)
+        {
+            int i = left, j = right;
+
+            if (frame_idx != 0)
+            {
+                partition(ref i, ref j, references, (r) =>r.frame_idx, key, partition_ascending);
+            }
+            else
+            {
+                partition(ref i, ref j, references, (r) => (uint)r.TopFieldOrderCnt, key, partition_ascending);
+            }
+
+
+            sort_one(references, left, i - 1, list0_ascending, (int)frame_idx);
+            sort_one(references, j + 1, right, list1_ascending, (int)frame_idx);
+        }
+
+        private int render_packedpicture()
+        {
+            throw new NotImplementedException();
+        }
+
+        private unsafe int render_packedsequence(VADisplay display, VAContext context)
+        {
+            _VAEncPackedHeaderParameterBuffer packedheader_param_buffer;
+            uint packedseq_para_bufid;
+            uint packedseq_data_bufid;
+            uint[] render_id = new uint[2];
+
+            uint length_in_bits;
+            byte* packedseq_buffer = null;
+            uint va_status;
+
+            length_in_bits = build_packed_seq_buffer(&packedseq_buffer);
+
+            packedheader_param_buffer.type = (uint)VAEncPackedHeaderType.VAEncPackedHeaderSequence;
+
+            packedheader_param_buffer.bit_length = length_in_bits; /*length_in_bits*/
+            packedheader_param_buffer.has_emulation_bytes = 0;
+            packedseq_para_bufid = context.CreateBuffer(VABufferType.VAEncPackedHeaderParameterBufferType, ref packedheader_param_buffer);
+
+            packedseq_data_bufid = context.CreateBuffer(
+                VABufferType.VAEncPackedHeaderDataBufferType,
+                new Span<byte>(packedseq_buffer, (int)((length_in_bits + 7) / 8)));
+
+            render_id[0] = packedseq_para_bufid;
+            render_id[1] = packedseq_data_bufid;
+            context.RenderPicture(render_id);
+
+            // TODO: Free these buffers?
+
+            return 0;
+        }
+
+        static unsafe uint build_packed_seq_buffer(byte** header_buffer)
+        {
+            throw new NotImplementedException();
+        }
+
+        uint frame_bitrate = 0;
+        uint num_ref_frames = 2;
+        uint Log2MaxPicOrderCntLsb = 8;
+        uint Log2MaxFrameNum = 16;
+
+        const int frame_width = 176;
+        const int frame_height = 144;
+
+        const int initial_qp = 26;
+        const int minimal_qp = 0;
+        const int misc_priv_type = 0;
+
+        private unsafe int render_sequence(VADisplay display, VAContext context)
+        {
+            uint seq_param_buf;
+            uint rc_param_buf;
+            uint misc_param_tmpbuf;
+            uint[] render_id = new uint[2];
+            int va_status;
+            _VAEncMiscParameterBuffer* misc_param;
+            _VAEncMiscParameterBuffer* misc_param_tmp;
+            _VAEncMiscParameterRateControl* misc_rate_ctrl;
+
+            seq_param.level_idc = 41 /*SH_LEVEL_3*/;
+            seq_param.picture_width_in_mbs = (ushort)(frame_width_mbaligned / 16);
+            seq_param.picture_height_in_mbs = (ushort)(frame_height_mbaligned / 16);
+            seq_param.bits_per_second = frame_bitrate;
+
+            seq_param.intra_period = intra_period;
+            seq_param.intra_idr_period = intra_idr_period;
+            seq_param.ip_period = (uint)ip_period;
+
+            seq_param.max_num_ref_frames = num_ref_frames;
+            seq_param.seq_fields.bits.frame_mbs_only_flag = 1;
+            seq_param.time_scale = 900;
+            seq_param.num_units_in_tick = 15; /* Tc = num_units_in_tick / time_sacle */
+            Log2MaxPicOrderCntLsb = (uint)Math.Ceiling(Math.Log2(intra_idr_period * 2));
+            seq_param.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = Log2MaxPicOrderCntLsb - 4;
+            if (seq_param.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 > 12)
+            {
+                seq_param.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = 12;
+            }
+            seq_param.seq_fields.bits.log2_max_frame_num_minus4 = Log2MaxFrameNum - 4; ;
+            seq_param.seq_fields.bits.frame_mbs_only_flag = 1;
+            seq_param.seq_fields.bits.chroma_format_idc = 1;
+            seq_param.seq_fields.bits.direct_8x8_inference_flag = 1;
+
+            if (frame_width != frame_width_mbaligned ||
+                frame_height != frame_height_mbaligned)
+            {
+                seq_param.frame_cropping_flag = 1;
+                seq_param.frame_crop_left_offset = 0;
+                seq_param.frame_crop_right_offset = (frame_width_mbaligned - frame_width) / 2;
+                seq_param.frame_crop_top_offset = 0;
+                seq_param.frame_crop_bottom_offset = (frame_height_mbaligned - frame_height) / 2;
+            }
+
+            seq_param_buf = context.CreateBuffer<_VAEncSequenceParameterBufferH264>(VABufferType.VAEncSequenceParameterBufferType, ref seq_param);
+            rc_param_buf = context.CreateBuffer(
+                VABufferType.VAEncMiscParameterBufferType,
+                (uint)(sizeof(_VAEncMiscParameterBuffer) + sizeof(_VAEncMiscParameterRateControl)));
+
+            int ret = Methods.vaMapBuffer((void*)display.DisplayId, rc_param_buf, (void**)&misc_param);
+            VAException.ThrowOnError(ret);
+            misc_param->type = VAEncMiscParameterType.VAEncMiscParameterTypeRateControl;
+            misc_rate_ctrl = (_VAEncMiscParameterRateControl*)misc_param->data;
+            misc_rate_ctrl->bits_per_second = frame_bitrate;
+            misc_rate_ctrl->target_percentage = 66;
+            misc_rate_ctrl->window_size = 1000;
+            misc_rate_ctrl->initial_qp = initial_qp;
+            misc_rate_ctrl->min_qp = minimal_qp;
+            misc_rate_ctrl->basic_unit_size = 0;
+            ret = Methods.vaUnmapBuffer((void*)display.DisplayId, rc_param_buf);
+            VAException.ThrowOnError(ret);
+
+            render_id[0] = seq_param_buf;
+            render_id[1] = rc_param_buf;
+
+            context.RenderPicture(render_id);
+
+            if (misc_priv_type != 0)
+            {
+                throw new NotSupportedException();
+
+                /*
+                va_status = vaCreateBuffer(va_dpy, context_id,
+                                           VAEncMiscParameterBufferType,
+                                           sizeof(VAEncMiscParameterBuffer),
+                                           1, NULL, &misc_param_tmpbuf);
+                CHECK_VASTATUS(va_status, "vaCreateBuffer");
+                vaMapBuffer(va_dpy, misc_param_tmpbuf, (void**)&misc_param_tmp);
+                misc_param_tmp->type = misc_priv_type;
+                misc_param_tmp->data[0] = misc_priv_value;
+                vaUnmapBuffer(va_dpy, misc_param_tmpbuf);
+
+                context.RenderPicture(&misc_param_tmpbuf, 1);*/
+            }
+
+            return 0;
+        }
+        static uint MaxPicOrderCntLsb = (2 << 8);
+
+        private _VAPictureH264 CurrentCurrPic;
+        private _VAPictureH264[] ReferenceFrames = new _VAPictureH264[16];
+        private int h264_entropy_mode = 1; /* cabac */
+        private ulong current_frame_encoding = 0;
+
+        private int render_picture(VADisplay display, VAContext context, ulong current_frame_display, int current_frame_type)
+        {
+            int pic_param_buf;
+            int va_status;
+            int i = 0;
+
+            pic_param.CurrPic.picture_id = ref_surface[current_slot(current_frame_display)];
+            pic_param.CurrPic.frame_idx = current_frame_num;
+            pic_param.CurrPic.flags = 0;
+            pic_param.CurrPic.TopFieldOrderCnt = calc_poc((int)((current_frame_display - current_IDR_display) % MaxPicOrderCntLsb), current_frame_type);
+            pic_param.CurrPic.BottomFieldOrderCnt = pic_param.CurrPic.TopFieldOrderCnt;
+            CurrentCurrPic = pic_param.CurrPic;
+
+            if (Environment.GetEnvironmentVariable("TO_DEL") != null)
+            {
+                throw new NotImplementedException();
+
+                /* set RefPicList into ReferenceFrames */
+                //update_RefPicList(); /* calc RefPicList */
+                //memset(pic_param.ReferenceFrames, 0xff, 16 * sizeof(VAPictureH264)); /* invalid all */
+                //if (current_frame_type == FRAME_P)
+                //{
+                //    pic_param.ReferenceFrames[0] = RefPicList0_P[0];
+                //}
+                //else if (current_frame_type == FRAME_B)
+                //{
+                //    pic_param.ReferenceFrames[0] = RefPicList0_B[0];
+                //    pic_param.ReferenceFrames[1] = RefPicList1_B[0];
+                //}
+            }
+            else
+            {
+                ReferenceFrames.AsSpan(0, (int)numShortTerm).CopyTo(
+                    pic_param.ReferenceFrames.AsSpan());
+
+                for (i = (int)numShortTerm; i < SURFACE_NUM; i++)
+                {
+                    pic_param.ReferenceFrames[i].picture_id = Methods.VA_INVALID_SURFACE;
+                    pic_param.ReferenceFrames[i].flags = Methods.VA_PICTURE_H264_INVALID;
+                }
+            }
+
+            pic_param.pic_fields.bits.idr_pic_flag = (current_frame_type == FRAME_IDR) ? 1u : 0u;
+            pic_param.pic_fields.bits.reference_pic_flag = (current_frame_type != FRAME_B) ? 1u : 0u;
+            pic_param.pic_fields.bits.entropy_coding_mode_flag = (uint)h264_entropy_mode;
+            pic_param.pic_fields.bits.deblocking_filter_control_present_flag = 1;
+            pic_param.frame_num = (ushort)current_frame_num;
+            pic_param.coded_buf = coded_buf[current_slot(current_frame_display)];
+            pic_param.last_picture = (current_frame_encoding == frame_count) ? (byte)1 : (byte)0;
+            pic_param.pic_init_qp = initial_qp;
+
+            // TODO: double check
+            pic_param_buf = (int)context.CreateBuffer<_VAEncPictureParameterBufferH264>(
+                VABufferType.VAEncPictureParameterBufferType,
+                ref pic_param);
+            //va_status = vaCreateBuffer(va_dpy, context_id, VAEncPictureParameterBufferType,
+            //                           sizeof(pic_param), 1, &pic_param, &pic_param_buf);
+
+            context.RenderPicture((uint)pic_param_buf);
+
+            return 0;
+        }
+
+        static int calc_poc(int pic_order_cnt_lsb, int current_frame_type)
+        {
+            // TODO: these are static?
+            int PicOrderCntMsb_ref = 0, pic_order_cnt_lsb_ref = 0;
+            int prevPicOrderCntMsb, prevPicOrderCntLsb;
+            int PicOrderCntMsb, TopFieldOrderCnt;
+
+            if (current_frame_type == FRAME_IDR)
+                prevPicOrderCntMsb = prevPicOrderCntLsb = 0;
+            else
+            {
+                prevPicOrderCntMsb = PicOrderCntMsb_ref;
+                prevPicOrderCntLsb = pic_order_cnt_lsb_ref;
+            }
+
+            if ((pic_order_cnt_lsb < prevPicOrderCntLsb) &&
+                ((prevPicOrderCntLsb - pic_order_cnt_lsb) >= (int)(MaxPicOrderCntLsb / 2)))
+                PicOrderCntMsb = (int)(prevPicOrderCntMsb + MaxPicOrderCntLsb);
+            else if ((pic_order_cnt_lsb > prevPicOrderCntLsb) &&
+                     ((pic_order_cnt_lsb - prevPicOrderCntLsb) > (int)(MaxPicOrderCntLsb / 2)))
+                PicOrderCntMsb = (int)(prevPicOrderCntMsb - MaxPicOrderCntLsb);
+            else
+                PicOrderCntMsb = prevPicOrderCntMsb;
+
+            TopFieldOrderCnt = PicOrderCntMsb + pic_order_cnt_lsb;
+
+            if (current_frame_type != FRAME_B)
+            {
+                PicOrderCntMsb_ref = PicOrderCntMsb;
+                pic_order_cnt_lsb_ref = pic_order_cnt_lsb;
+            }
+
+            return TopFieldOrderCnt;
+        }
+
+        /*
+          Assume frame sequence is: Frame#0,#1,#2,...,#M,...,#X,... (encoding order)
+          1) period between Frame #X and Frame #N = #X - #N
+          2) 0 means infinite for intra_period/intra_idr_period, and 0 is invalid for ip_period
+          3) intra_idr_period % intra_period (intra_period > 0) and intra_period % ip_period must be 0
+          4) intra_period and intra_idr_period take precedence over ip_period
+          5) if ip_period > 1, intra_period and intra_idr_period are not  the strict periods
+             of I/IDR frames, see bellow examples
+          -------------------------------------------------------------------
+          intra_period intra_idr_period ip_period frame sequence (intra_period/intra_idr_period/ip_period)
+          0            ignored          1          IDRPPPPPPP ...     (No IDR/I any more)
+          0            ignored        >=2          IDR(PBB)(PBB)...   (No IDR/I any more)
+          1            0                ignored    IDRIIIIIII...      (No IDR any more)
+          1            1                ignored    IDR IDR IDR IDR...
+          1            >=2              ignored    IDRII IDRII IDR... (1/3/ignore)
+          >=2          0                1          IDRPPP IPPP I...   (3/0/1)
+          >=2          0              >=2          IDR(PBB)(PBB)(IBB) (6/0/3)
+                                                      (PBB)(IBB)(PBB)(IBB)...
+          >=2          >=2              1          IDRPPPPP IPPPPP IPPPPP (6/18/1)
+                                                   IDRPPPPP IPPPPP IPPPPP...
+          >=2          >=2              >=2        {IDR(PBB)(PBB)(IBB)(PBB)(IBB)(PBB)} (6/18/3)
+                                                   {IDR(PBB)(PBB)(IBB)(PBB)(IBB)(PBB)}...
+                                                   {IDR(PBB)(PBB)(IBB)(PBB)}           (6/12/3)
+                                                   {IDR(PBB)(PBB)(IBB)(PBB)}...
+                                                   {IDR(PBB)(PBB)}                     (6/6/3)
+                                                   {IDR(PBB)(PBB)}.
+        */
+
+
+        /*
+         * Return displaying order with specified periods and encoding order
+         * displaying_order: displaying order
+         * frame_type: frame type
+         */
+        const int FRAME_P = 0;
+        const int FRAME_B = 1;
+        const int FRAME_I = 2;
+        const int FRAME_IDR = 7;
+
+        unsafe void encoding2display_order(
+            ulong encoding_order, int intra_period,
+            int intra_idr_period, int ip_period,
+            ulong* displaying_order,
+            int* frame_type)
+        {
+            int encoding_order_gop = 0;
+
+            if (intra_period == 1)
+            { /* all are I/IDR frames */
+                *displaying_order = encoding_order;
+                if (intra_idr_period == 0)
+                    *frame_type = (encoding_order == 0) ? FRAME_IDR : FRAME_I;
+                else
+                    *frame_type = (encoding_order % (ulong)intra_idr_period == 0) ? FRAME_IDR : FRAME_I;
+                return;
+            }
+
+            if (intra_period == 0)
+                intra_idr_period = 0;
+
+            /* new sequence like
+             * IDR PPPPP IPPPPP
+             * IDR (PBB)(PBB)(IBB)(PBB)
+             */
+            encoding_order_gop = (intra_idr_period == 0) ? (int)encoding_order :
+                                 ((int)encoding_order % (intra_idr_period + ((ip_period == 1) ? 0 : 1)));
+
+            if (encoding_order_gop == 0)
+            { /* the first frame */
+                *frame_type = FRAME_IDR;
+                *displaying_order = encoding_order;
+            }
+            else if (((encoding_order_gop - 1) % ip_period) != 0)
+            { /* B frames */
+                *frame_type = FRAME_B;
+                *displaying_order = encoding_order - 1;
+            }
+            else if ((intra_period != 0) && /* have I frames */
+                       (encoding_order_gop >= 2) &&
+                       ((ip_period == 1 && encoding_order_gop % intra_period == 0) || /* for IDR PPPPP IPPPP */
+                        /* for IDR (PBB)(PBB)(IBB) */
+                        (ip_period >= 2 && ((encoding_order_gop - 1) / ip_period % (intra_period / ip_period)) == 0)))
+            {
+                *frame_type = FRAME_I;
+                *displaying_order = encoding_order + (ulong)ip_period - 1;
+            }
+            else
+            {
+                *frame_type = FRAME_P;
+                *displaying_order = encoding_order + (ulong)ip_period - 1;
+            }
         }
 
         private int upload_source_YUV_once_for_all(VADisplay display)
