@@ -57,6 +57,8 @@ namespace VASharp
         /// <inheritdoc/>
         public bool IsDisposed { get; private set; }
 
+        public nint DisplayId { get { return (nint)this.display; } }
+
         /// <summary>
         /// Returns a pointer to a zero-terminated string describing some aspects of the VA implemenation on a specific hardware accelerator.
         /// </summary>
