@@ -3,3 +3,6 @@ obj/
 lib/
 vcpkg_installed/
 .vs/
+dxil.dll
+vaon12_drv_video.dll
+vaon12_drv_video.pdb

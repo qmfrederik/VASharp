@@ -52,3 +52,5 @@ cd VASharp/Native
 dotnet tool run ClangSharpPInvokeGenerator @libva2.rsp
 dotnet tool run ClangSharpPInvokeGenerator @libva-win32.rsp
 ```
+
+You can download the Windows drivers (dxil.dll and vaon12_drv_video.dll) at https://www.nuget.org/packages/Microsoft.Direct3D.VideoAccelerationCompatibilityPack/.
