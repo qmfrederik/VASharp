@@ -38,7 +38,6 @@ namespace VASharp
             Verify.NotDisposed(this);
 
             uint buf_id;
-            var x = sizeof(_VAPictureParameterBufferH264);
 
             fixed (T* v = &value)
             {
@@ -61,7 +60,7 @@ namespace VASharp
             Verify.NotDisposed(this);
 
             uint buf_id;
-            fixed(byte* value = data)
+            fixed (byte* value = data)
             {
                 int ret = Methods.vaCreateBuffer(
                     this.display,
@@ -71,7 +70,27 @@ namespace VASharp
                     1,
                     (void*)value,
                     &buf_id);
+                VAException.ThrowOnError(ret);
             }
+
+            return buf_id;
+        }
+
+        public uint CreateBuffer(VABufferType type, uint size)
+        {
+            Verify.NotDisposed(this);
+
+            uint buf_id;
+
+            int ret = Methods.vaCreateBuffer(
+                this.display,
+                this.handle,
+                type,
+                size,
+                1,
+                null,
+                &buf_id);
+            VAException.ThrowOnError(ret);
 
             return buf_id;
         }

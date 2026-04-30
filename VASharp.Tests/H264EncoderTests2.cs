@@ -10,6 +10,9 @@ namespace VASharp.Tests
     {
         private readonly ILogger logger = NullLogger.Instance;
 
+        uint frame_width_mbaligned;
+        uint frame_height_mbaligned;
+
         // https://github.com/intel/libva-utils/blob/master/encode/h264encode.c
         [Fact]
         public void Foo()
@@ -17,8 +20,17 @@ namespace VASharp.Tests
             var provider = this.GetServiceProvider();
             var display = provider.GetRequiredService<VADisplay>();
 
+            var frame_width = 64;
+            var frame_height = 64;
+
+            frame_width_mbaligned = (uint)((frame_width + 15) & (~15));
+            frame_height_mbaligned = (uint)((frame_height + 15) & (~15));
+
             this.init_va(display);
+            this.setup_encode(display);
         }
+
+        const int SURFACE_NUM = 16;
 
         VAEntrypoint selected_entrypoint;
         VAProfile h264_profile;
@@ -250,6 +262,63 @@ namespace VASharp.Tests
                 this.logger.LogInformation("Support VAConfigAttribEncMacroblockInfo");
             }
 
+            return 0;
+        }
+
+        private uint config_id;
+        private VAContext context_id;
+        private uint[] src_surface;
+        private uint[] ref_surface;
+
+        private unsafe int setup_encode(VADisplay display)
+        {
+            uint codedbuf_size, i;
+
+            var attributes = this.config_attrib.Take(this.config_attrib_num).ToArray();
+
+            this.config_id = display.CreateConfig(
+                this.h264_profile,
+                this.selected_entrypoint,
+                attributes);
+
+            /* create source surfaces */
+            this.src_surface = display.CreateSurfaces(
+                VAFormat.VA_RT_FORMAT_YUV420,
+                this.frame_width_mbaligned,
+                this.frame_height_mbaligned,
+                SURFACE_NUM);
+
+            /* create reference surfaces */
+            this.ref_surface = display.CreateSurfaces(
+                 VAFormat.VA_RT_FORMAT_YUV420,
+                 this.frame_width_mbaligned,
+                 this.frame_height_mbaligned,
+                 SURFACE_NUM);
+
+            uint[] tmp_surfaceid = new uint[2 * SURFACE_NUM];
+
+            this.context_id = display.CreateContext(
+                this.config_id,
+                (int)this.frame_width_mbaligned,
+                (int)this.frame_height_mbaligned,
+                VAContextFlags.VA_PROGRESSIVE,
+                tmp_surfaceid);
+
+            codedbuf_size = (this.frame_width_mbaligned * this.frame_height_mbaligned * 400) / (16 * 16);
+            uint[] coded_buf = new uint[SURFACE_NUM];
+
+            for (i = 0; i < SURFACE_NUM; i++)
+            {
+                /* create coded buffer once for all
+                 * other VA buffers which won't be used again after vaRenderPicture.
+                 * so APP can always vaCreateBuffer for every frame
+                 * but coded buffer need to be mapped and accessed after vaRenderPicture/vaEndPicture
+                 * so VA won't maintain the coded buffer
+                 */
+                coded_buf[i] = context_id.CreateBuffer(
+                    VABufferType.VAEncCodedBufferType,
+                    codedbuf_size);
+            }
             return 0;
         }
     }

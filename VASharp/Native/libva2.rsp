@@ -7,6 +7,7 @@
 -I../../vcpkg_installed/x64-windows/include/
 -t../../vcpkg_installed/x64-windows/include/va/va.h
 -t../../vcpkg_installed/x64-windows/include/va/va_dec_jpeg.h
+-t../../vcpkg_installed/x64-windows/include/va/va_enc_h264.h
 -DVA_WIN32
 -eVA_TIMEOUT_INFINITE
 --config

@@ -264,6 +264,27 @@ namespace VASharp
             return surface_id;
         }
 
+        public uint[] CreateSurfaces(VAFormat format, uint width, uint height, uint numSurfaces)
+        {
+            var surface_ids = new uint[numSurfaces];
+
+            fixed (uint* surfaces = surface_ids)
+            {
+                int ret = Methods.vaCreateSurfaces(
+                this.display,
+                (uint)format,
+                width,
+                height,
+                surfaces,
+                numSurfaces,
+                null,
+                0);
+                VAException.ThrowOnError(ret);
+            }
+
+            return surface_ids;
+        }
+
         /// <summary>
         /// Blocks until all pending operations on the render target have been completed. Upon return it is safe to use the render target for a different picture.
         /// </summary>
@@ -405,6 +426,27 @@ namespace VASharp
                 1,
                 &context_id);
             VAException.ThrowOnError(ret);
+
+            return new VAContext(this.display, context_id);
+        }
+
+        public VAContext CreateContext(uint configId, int width, int height, VAContextFlags flag, uint[] renderTargets)
+        {
+            uint context_id;
+
+            fixed (uint* ptr = renderTargets)
+            {
+                int ret = Methods.vaCreateContext(
+                    this.display,
+                    configId,
+                    width,
+                    height,
+                    (int)flag,
+                    ptr,
+                    renderTargets.Length,
+                    &context_id);
+                VAException.ThrowOnError(ret);
+            }
 
             return new VAContext(this.display, context_id);
         }
