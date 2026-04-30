@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Runtime.InteropServices;
 using VASharp.Native;
 using Xunit;
 
@@ -28,6 +29,7 @@ namespace VASharp.Tests
 
             this.init_va(display);
             this.setup_encode(display);
+            this.encode_frames(display);
         }
 
         const int SURFACE_NUM = 16;
@@ -319,6 +321,337 @@ namespace VASharp.Tests
                     VABufferType.VAEncCodedBufferType,
                     codedbuf_size);
             }
+            return 0;
+        }
+
+        private int encode_frames(VADisplay display)
+        {
+            // Not reading YUV data from file for now, just encode dummy frames.
+            /*
+            if (srcyuv_fp != NULL) {
+                for (i = 0; i < SURFACE_NUM; i++)
+                    load_surface(src_surface[i], i);
+            } else*/
+
+            upload_source_YUV_once_for_all(display);
+
+            throw new NotImplementedException();
+        }
+
+        private int upload_source_YUV_once_for_all(VADisplay display)
+        {
+            int box_width = 8;
+            int row_shift = 0;
+            int i;
+
+            for (i = 0; i < SURFACE_NUM; i++)
+            {
+                this.logger.LogInformation($"Loading data into surface {i}.....");
+                upload_surface(display, src_surface[i], box_width, row_shift, 0);
+
+                row_shift++;
+                if (row_shift == (2 * box_width)) row_shift = 0;
+            }
+            this.logger.LogInformation("Complete surface loading");
+
+            return 0;
+        }
+
+        static unsafe int upload_surface(VADisplay display, uint surface_id,
+                                  int box_width, int row_shift,
+                                  int field)
+        {
+            _VAImage surface_image;
+            void* surface_p = null;
+            void* U_start = null;
+            void* V_start = null;
+            int va_status;
+            uint[] pitches = { 0, 0, 0 };
+
+            va_status = Methods.vaDeriveImage((void*)display.DisplayId, surface_id, &surface_image);
+            VAException.ThrowOnError(va_status);
+
+            Methods.vaMapBuffer((void*)display.DisplayId, surface_image.buf, &surface_p);
+            VAException.ThrowOnError(va_status);
+
+            pitches[0] = surface_image.pitches[0];
+            switch (surface_image.format.fourcc)
+            {
+                case Methods.VA_FOURCC_NV12:
+                    U_start = (byte*)surface_p + surface_image.offsets[1];
+                    V_start = (byte*)U_start + 1;
+                    pitches[1] = surface_image.pitches[1];
+                    pitches[2] = surface_image.pitches[1];
+                    break;
+                case Methods.VA_FOURCC_IYUV:
+                    U_start = (byte*)surface_p + surface_image.offsets[1];
+                    V_start = (byte*)surface_p + surface_image.offsets[2];
+                    pitches[1] = surface_image.pitches[1];
+                    pitches[2] = surface_image.pitches[2];
+                    break;
+                case Methods.VA_FOURCC_YV12:
+                    U_start = (byte*)surface_p + surface_image.offsets[2];
+                    V_start = (byte*)surface_p + surface_image.offsets[1];
+                    pitches[1] = surface_image.pitches[2];
+                    pitches[2] = surface_image.pitches[1];
+                    break;
+                case Methods.VA_FOURCC_YUY2:
+                    U_start = (byte*)surface_p + 1;
+                    V_start = (byte*)surface_p + 3;
+                    pitches[1] = surface_image.pitches[0];
+                    pitches[2] = surface_image.pitches[0];
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+
+            /* assume surface is planar format */
+            yuvgen_planar(surface_image.width, surface_image.height,
+                        (byte*)surface_p, (int)pitches[0],
+                        (byte*)U_start, (int)pitches[1],
+                        (byte*)V_start, (int)pitches[2],
+                        surface_image.format.fourcc,
+                        box_width, row_shift, field);
+
+            va_status = Methods.vaUnmapBuffer((void*)display.DisplayId, surface_image.buf);
+            VAException.ThrowOnError(va_status);
+
+            va_status = Methods.vaDestroyImage((void*)display.DisplayId, surface_image.image_id);
+            VAException.ThrowOnError(va_status);
+
+            return 0;
+        }
+        static unsafe int yuvgen_planar(int width, int height,
+                         byte* Y_start, int Y_pitch,
+                         byte* U_start, int U_pitch,
+                         byte* V_start, int V_pitch,
+                         uint fourcc, int box_width, int row_shift,
+                         int field)
+        {
+            int row, alpha;
+            byte uv_value = 0x80;
+
+            /* copy Y plane */
+            int y_factor = 1;
+            if (fourcc == Methods.VA_FOURCC_YUY2) y_factor = 2;
+            for (row = 0; row < height; row++)
+            {
+                byte* Y_row = Y_start + row * Y_pitch;
+                int jj, xpos, ypos;
+
+                ypos = (row / box_width) & 0x1;
+
+                /* fill garbage data into the other field */
+                if (((field == Methods.VA_TOP_FIELD) && (row & 1) != 0)
+                    || ((field == Methods.VA_BOTTOM_FIELD) && ((row & 1) == 0)))
+                {
+                    new Span<byte>(Y_row, width).Fill(0xff);
+                    continue;
+                }
+
+                for (jj = 0; jj < width; jj++)
+                {
+                    xpos = ((row_shift + jj) / box_width) & 0x1;
+                    if (xpos == ypos)
+                        Y_row[jj * y_factor] = 0xeb;
+                    else
+                        Y_row[jj * y_factor] = 0x10;
+
+                    if (fourcc == Methods.VA_FOURCC_YUY2)
+                    {
+                        Y_row[jj * y_factor + 1] = uv_value; // it is for UV
+                    }
+                }
+            }
+
+            /* copy UV data */
+            for (row = 0; row < height / 2; row++)
+            {
+                /* fill garbage data into the other field */
+                if (((field == Methods.VA_TOP_FIELD) && (row & 1) != 0)
+                    || ((field == Methods.VA_BOTTOM_FIELD) && ((row & 1) == 0)))
+                {
+                    uv_value = 0xff;
+                }
+
+                byte* U_row = U_start + row * U_pitch;
+                byte* V_row = V_start + row * V_pitch;
+                switch (fourcc)
+                {
+                    case Methods.VA_FOURCC_NV12:
+                        new Span<byte>(U_row, width).Fill(uv_value);
+                        break;
+                    case Methods.VA_FOURCC_YV12:
+                        new Span<byte>(U_row, width / 2).Fill(uv_value);
+                        new Span<byte>(V_row, width / 2).Fill(uv_value);
+                        break;
+                    case Methods.VA_FOURCC_YUY2:
+                        // see above. it is set with Y update.
+                        break;
+                    default:
+                        throw new NotSupportedException("unsupported fourcc in loadsurface.h");
+                }
+            }
+
+            if (Environment.GetEnvironmentVariable("AUTO_NOUV") != null)
+            {
+                return 0;
+            }
+
+            if (Environment.GetEnvironmentVariable("AUTO_ALPHA") != null)
+            {
+                alpha = 0;
+            }
+            else
+            {
+                alpha = 70;
+            }
+
+            YUV_blend_with_pic(width, height,
+                               Y_start, Y_pitch,
+                               U_start, U_pitch,
+                               V_start, V_pitch,
+                               fourcc, alpha);
+
+            return 0;
+        }
+
+        static unsafe int YUV_blend_with_pic(int width, int height,
+                                      byte* Y_start, int Y_pitch,
+                                      byte* U_start, int U_pitch,
+                                      byte* V_start, int V_pitch,
+                                      uint fourcc, int fixed_alpha)
+        {
+            /* PIC YUV format */
+            byte[] old = YuvgaPic.yuvga_pic();
+
+            fixed (byte* yugva_pic = old)
+            {
+                byte* pic_y_old = yugva_pic;
+                byte* pic_u_old = pic_y_old + 640 * 480;
+                byte* pic_v_old = pic_u_old + 640 * 480 / 4;
+                byte* pic_y;
+                byte* pic_u;
+                byte* pic_v;
+
+                int[] alpha_values = { 100, 90, 80, 70, 60, 50, 40, 30, 20, 30, 40, 50, 60, 70, 80, 90 };
+
+                int alpha_idx = 0;
+                int alpha;
+                bool allocated = false;
+
+                int row, col;
+
+                if (fixed_alpha == 0)
+                {
+                    alpha = alpha_values[alpha_idx % 16];
+                    alpha_idx++;
+                }
+                else
+                    alpha = fixed_alpha;
+
+                //alpha = 0;
+
+                pic_y = pic_y_old;
+                pic_u = pic_u_old;
+                pic_v = pic_v_old;
+
+                if (width != 640 || height != 480)
+                { /* need to scale the pic */
+                    pic_y = (byte*)Marshal.AllocHGlobal(width * height);
+                    pic_u = (byte*)Marshal.AllocHGlobal(width * height / 4);
+                    pic_v = (byte*)Marshal.AllocHGlobal(width * height / 4);
+                    allocated = true;
+
+                    new Span<byte>(pic_y, width * height).Fill(0);
+                    new Span<byte>(pic_u, width * height / 4).Fill(0);
+                    new Span<byte>(pic_v, width * height / 4).Fill(0);
+
+                    scale_2dimage(pic_y_old, 640, 480,
+                                  pic_y, width, height);
+                    scale_2dimage(pic_u_old, 320, 240,
+                                  pic_u, width / 2, height / 2);
+                    scale_2dimage(pic_v_old, 320, 240,
+                                  pic_v, width / 2, height / 2);
+                }
+
+                /* begin blend */
+
+                /* Y plane */
+                int Y_pixel_stride = 1;
+                if (fourcc == Methods.VA_FOURCC_YUY2)
+                    Y_pixel_stride = 2;
+
+                for (row = 0; row < height; row++)
+                {
+                    byte* p = Y_start + row * Y_pitch;
+                    byte* q = pic_y + row * width;
+                    for (col = 0; col < width; col++, q++)
+                    {
+                        *p = (byte)(*p * (100 - alpha) / 100 + *q * alpha / 100);
+                        p += Y_pixel_stride;
+                    }
+                }
+
+                /* U/V plane */
+                int U_pixel_stride = 0, V_pixel_stride = 0;
+                int v_factor_to_nv12 = 1;
+                switch (fourcc)
+                {
+                    case Methods.VA_FOURCC_YV12:
+                        U_pixel_stride = V_pixel_stride = 1;
+                        break;
+                    case Methods.VA_FOURCC_NV12:
+                        U_pixel_stride = V_pixel_stride = 2;
+                        break;
+                    case Methods.VA_FOURCC_YUY2:
+                        U_pixel_stride = V_pixel_stride = 4;
+                        v_factor_to_nv12 = 2;
+                        break;
+                    default:
+                        break;
+                }
+                for (row = 0; row < height / 2 * v_factor_to_nv12; row++)
+                {
+                    byte* pU = U_start + row * U_pitch;
+                    byte* pV = V_start + row * V_pitch;
+                    byte* qU = pic_u + row / v_factor_to_nv12 * width / 2;
+                    byte* qV = pic_v + row / v_factor_to_nv12 * width / 2;
+
+                    for (col = 0; col < width / 2; col++, qU++, qV++)
+                    {
+                        *pU = (byte)(*pU * (100 - alpha) / 100 + *qU * alpha / 100);
+                        *pV = (byte)(*pV * (100 - alpha) / 100 + *qV * alpha / 100);
+
+                        pU += U_pixel_stride;
+                        pV += V_pixel_stride;
+                    }
+                }
+
+                if (allocated)
+                {
+                    Marshal.FreeHGlobal((nint)pic_y);
+                    Marshal.FreeHGlobal((nint)pic_u);
+                    Marshal.FreeHGlobal((nint)pic_v);
+                }
+
+                return 0;
+            }
+        }
+
+        static unsafe int scale_2dimage(byte* src_img, int src_imgw, int src_imgh,
+                                 byte* dst_img, int dst_imgw, int dst_imgh)
+        {
+            int row = 0, col = 0;
+
+            for (row = 0; row < dst_imgh; row++)
+            {
+                for (col = 0; col < dst_imgw; col++)
+                {
+                    *(dst_img + row * dst_imgw + col) = *(src_img + (row * src_imgh / dst_imgh) * src_imgw + col * src_imgw / dst_imgw);
+                }
+            }
+
             return 0;
         }
     }
