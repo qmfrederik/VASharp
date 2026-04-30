@@ -285,6 +285,27 @@ namespace VASharp
             return surface_ids;
         }
 
+        public unsafe uint[] CreateSurfaces(VAFormat format, uint width, uint height, uint numSurfaces, _VASurfaceAttrib attribute)
+        {
+            var surface_ids = new uint[numSurfaces];
+
+            fixed (uint* surfaces = surface_ids)
+            {
+                int ret = Methods.vaCreateSurfaces(
+                this.display,
+                (uint)format,
+                width,
+                height,
+                surfaces,
+                numSurfaces,
+                &attribute,
+                1);
+                VAException.ThrowOnError(ret);
+            }
+
+            return surface_ids;
+        }
+
         /// <summary>
         /// Blocks until all pending operations on the render target have been completed. Upon return it is safe to use the render target for a different picture.
         /// </summary>
@@ -365,7 +386,7 @@ namespace VASharp
         public Span<byte> MapBuffer(_VAImage image)
         {
             Verify.NotDisposed(this);
-            
+
             void* bytes;
             int ret = Methods.vaMapBuffer(
                 this.display,
